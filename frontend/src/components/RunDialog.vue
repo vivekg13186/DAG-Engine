@@ -35,7 +35,7 @@ function onKeydown(e) {
     @update:model-value="emit('update:modelValue', $event)"
     persistent
   >
-    <q-card style="min-width: 520px; max-width: 92vw;" class="bg-dark text-white">
+    <q-card style="min-width: 520px; max-width: 92vw;">
       <q-card-section class="row items-center q-pb-sm">
         <q-icon name="play_arrow" class="q-mr-sm" />
         <div class="text-subtitle1">Run with input</div>
@@ -53,7 +53,7 @@ function onKeydown(e) {
           v-model="text"
           type="textarea"
           dense
-          dark
+           
           filled
           autogrow
           input-style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12.5px; min-height: 240px;"
@@ -69,7 +69,7 @@ function onKeydown(e) {
       <q-card-actions align="right" class="q-pa-sm">
         <q-btn dense flat no-caps label="Cancel" v-close-popup @click="close" />
         <q-btn
-          dense unelevated no-caps
+          outline  no-caps
           color="primary"
           icon-right="play_arrow"
           label="Run"

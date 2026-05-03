@@ -216,6 +216,54 @@ export const useGraphsStore = defineStore("graphs", {
     },
 
     /**
+     * Permanently delete a graph (current version only — older versions stay).
+     * Closes any open editor or execution tab pointing at it, then refreshes
+     * the flows list. Returns true on success.
+     */
+    async deleteGraph(graphId) {
+      try {
+        await Graphs.remove(graphId);
+      } catch (e) {
+        console.warn("deleteGraph failed", e);
+        return false;
+      }
+      // Close any tabs that reference this graph (editor + any execution tabs).
+      const toClose = this.tabs.filter(t =>
+        (t.kind === "graph" && t.graphId === graphId) ||
+        (t.kind === "execution" && t.graphId === graphId)
+      );
+      for (const t of toClose) this.closeTab(t.id);
+      // Refresh top-level lists.
+      await this.loadGraphs();
+      return true;
+    },
+
+    /**
+     * Permanently delete an execution and its node_logs.
+     * Closes the matching tab if open, then refreshes the parent graph's
+     * execution list (so the left-pane table updates).
+     */
+    async deleteExecution(execId) {
+      // Locate parent graph id BEFORE we close the tab, so we can refresh.
+      const tab = this.tabs.find(t => t.kind === "execution" && t.execId === execId);
+      const graphId = tab?.graphId;
+      try {
+        await Executions.remove(execId);
+      } catch (e) {
+        console.warn("deleteExecution failed", e);
+        return false;
+      }
+      if (tab) this.closeTab(tab.id);
+      if (graphId) {
+        const editor = this.tabs.find(t => t.kind === "graph" && t.graphId === graphId);
+        if (editor) {
+          try { editor.executions = await Executions.list(graphId); } catch {}
+        }
+      }
+      return true;
+    },
+
+    /**
      * Re-fetch the active execution tab's row + node logs from the API.
      * Bound to the Refresh button in ExecutionView.
      */

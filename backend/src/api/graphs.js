@@ -104,7 +104,7 @@ router.delete("/:id", async (req, res, next) => {
       [req.params.id],
     );
     if (rowCount === 0) throw new NotFoundError("graph");
-    res.status(204).end();
+    res.status(200).json({ ok: true, id: req.params.id, deleted: "graph" });
   } catch (e) { next(e); }
 });
 
@@ -115,10 +115,14 @@ router.post("/:id/execute", async (req, res, next) => {
     if (rows.length === 0) throw new NotFoundError("graph");
 
     const execId = uuid();
+    const userInput = req.body?.context || {};
+    // Store the user-supplied JSON in `inputs` (preserved for the lifetime of
+    // the execution row). `context` will be overwritten with the final engine
+    // ctx when the worker finishes.
     await pool.query(
-      `INSERT INTO executions (id, graph_id, status, context)
-       VALUES ($1,$2,'queued',$3)`,
-      [execId, req.params.id, JSON.stringify(req.body?.context || {})],
+      `INSERT INTO executions (id, graph_id, status, inputs, context)
+       VALUES ($1,$2,'queued',$3,'{}'::jsonb)`,
+      [execId, req.params.id, JSON.stringify(userInput)],
     );
     await enqueueExecution({ executionId: execId, graphId: req.params.id });
     res.status(202).json({ executionId: execId, status: "queued" });

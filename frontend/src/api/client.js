@@ -13,8 +13,9 @@ export const Graphs = {
 };
 
 export const Executions = {
-  list: (graphId) => api.get("/executions", { params: { graphId } }).then(r => r.data),
-  get:  (id) => api.get(`/executions/${id}`).then(r => r.data),
+  list:   (graphId) => api.get("/executions", { params: { graphId } }).then(r => r.data),
+  get:    (id) => api.get(`/executions/${id}`).then(r => r.data),
+  remove: (id) => api.delete(`/executions/${id}`),
 };
 
 export function openLiveExecution(executionId, onMessage) {

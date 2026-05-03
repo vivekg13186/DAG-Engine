@@ -57,12 +57,11 @@ function onCloseTab() {
 
 <template>
   <div class="workspace column no-wrap full-height">
-    <q-toolbar   >
-          
+    <q-toolbar>
+
       <q-select v-if="store.tabs.length" v-model="store.activeId"
-        :options="store.tabs.map(t => ({ label: tabLabel(t), value: t.id, icon: tabIcon(t) }))" 
-        emit-value map-options
-              borderless options-dense dense style="min-width: 180px;width: 100%;">
+        :options="store.tabs.map(t => ({ label: tabLabel(t), value: t.id, icon: tabIcon(t) }))" emit-value map-options
+        borderless options-dense dense style="min-width: 180px;width: 100%;">
 
         <template v-slot:option="scope">
           <q-item v-bind="scope.itemProps" dense>
@@ -70,11 +69,11 @@ function onCloseTab() {
           </q-item>
         </template>
       </q-select>
-    <q-space/>
-         <q-btn round outline color="primary" size="sm" no-caps icon="close"
-                :disable="!store.activeId" @click="onCloseTab">
-          <q-tooltip>Close tab</q-tooltip>
-        </q-btn>
+      <q-space />
+      <q-btn round outline color="primary" size="sm" no-caps icon="close" :disable="!store.activeId"
+        @click="onCloseTab">
+        <q-tooltip>Close tab</q-tooltip>
+      </q-btn>
 
     </q-toolbar>
 
@@ -88,10 +87,10 @@ function onCloseTab() {
       ]" />
 
       <q-space />
-     
-      
+
+
       <div class="q-gutter-xs q-pl-xs">
-       
+
         <q-btn round outline color="primary" size="sm" no-caps icon="check_circle" @click="onValidate">
           <q-tooltip>Validate</q-tooltip>
         </q-btn>

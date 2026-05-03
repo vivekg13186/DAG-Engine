@@ -95,8 +95,7 @@ function nodeStyle(status) {
   // Edit mode (status = null): neutral border so nothing implies "pending".
   if (!status) {
     return {
-      background: "#1d2230",
-      color: "#e6e8ee",
+      
       border: "1px solid #2a3142",
       borderRadius: "6px",
       padding: "8px",
@@ -114,8 +113,7 @@ function nodeStyle(status) {
     pending:  "#2a3142",
   };
   return {
-    background: "#1d2230",
-    color: "#e6e8ee",
+    
     border: `2px solid ${colors[status] || "#2a3142"}`,
     borderRadius: "6px",
     padding: "8px",

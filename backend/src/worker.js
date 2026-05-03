@@ -30,10 +30,15 @@ async function processExecution(job) {
 
   // Pull the user-supplied JSON input that was stashed when the execution row
   // was created. It overlays parsed.data and is exposed as ${data.*} / ${input.*}.
+  // (Older rows may only have it in `context`; fall back if `inputs` is empty.)
   const { rows: ctxRows } = await pool.query(
-    "SELECT context FROM executions WHERE id=$1", [executionId],
+    "SELECT inputs, context FROM executions WHERE id=$1", [executionId],
   );
-  const userContext = ctxRows[0]?.context || {};
+  const inputsRow = ctxRows[0]?.inputs;
+  const userContext =
+    (inputsRow && (Array.isArray(inputsRow) || Object.keys(inputsRow).length > 0))
+      ? inputsRow
+      : (ctxRows[0]?.context || {});
 
   // Batch mode: if the user-supplied input is { items: [...] } OR a bare array,
   // run the whole DAG once per item. Otherwise treat it as a single-run object.

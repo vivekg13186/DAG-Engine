@@ -23,12 +23,40 @@ const parsed = computed(() => {
 });
 
 const status = computed(() => tab.value?.data?.status || "queued");
-const isBatch = computed(() => Array.isArray(tab.value?.data?.context?.items));
-const batchItems = computed(() => isBatch.value ? tab.value.data.context.items : []);
-const inputContext = computed(() => isBatch.value ? null : (tab.value?.data?.context || {}));
+// Batch mode is detected from the user's input — array, or { items: [...] }.
+// (After execution finishes, batch results live in `context.items`; we still
+// fall back to that for older runs where inputs weren't stored separately.)
+const userInputs = computed(() => {
+  const d = tab.value?.data;
+  if (!d) return null;
+  // Prefer the dedicated `inputs` column; fall back to `context` for legacy rows.
+  const v = d.inputs && (Array.isArray(d.inputs) || Object.keys(d.inputs).length > 0)
+    ? d.inputs
+    : d.context;
+  return v ?? null;
+});
+const isBatch = computed(() => {
+  const i = userInputs.value;
+  return Array.isArray(i) || Array.isArray(i?.items)
+      || Array.isArray(tab.value?.data?.context?.items);
+});
+const batchItems = computed(() => {
+  if (!isBatch.value) return [];
+  const i = userInputs.value;
+  if (Array.isArray(i)) return i.map((item, index) => ({ index, status: "—", input: item }));
+  if (Array.isArray(i?.items)) return i.items.map((item, index) => ({ index, status: "—", input: item }));
+  // Final-context fallback: worker stored per-item results
+  return tab.value.data.context.items;
+});
+const inputContext = computed(() => isBatch.value ? null : (userInputs.value || {}));
 const nodeLogs = computed(() => tab.value?.data?.nodeLogs || []);
 
-const inputRows = computed(() => Object.entries(inputContext.value || {}).map(([k, v]) => ({ k, v })));
+// Rows for the inputs table — one row per top-level key in the user's JSON.
+const inputRows = computed(() => {
+  const i = inputContext.value;
+  if (!i || typeof i !== "object") return [];
+  return Object.entries(i).map(([k, v]) => ({ k, v }));
+});
 
 
 
