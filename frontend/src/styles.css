@@ -1,0 +1,37 @@
+/* Project-specific bits that complement Quasar's dark theme. */
+
+:root {
+  --bg: #0f1117;
+  --panel: #161922;
+  --panel-2: #1d2230;
+  --border: #2a3142;
+  --text: #e6e8ee;
+  --muted: #8b93a7;
+  --accent: #4f8cff;
+  --success: #2ecc71;
+  --failed: #ff5a5f;
+  --skipped: #999;
+  --running: #f5a623;
+}
+
+html, body, #app { margin: 0; padding: 0; height: 100%; }
+
+/* Status pill helper used in tables and chips. */
+.status-pill {
+  display: inline-block; padding: 2px 8px; border-radius: 10px;
+  font-size: 11px; font-weight: 600; text-transform: lowercase;
+}
+.status-success  { background: rgba(46,204,113,0.15); color: var(--success); }
+.status-failed   { background: rgba(255,90,95,0.15);  color: var(--failed); }
+.status-skipped  { background: rgba(153,153,153,0.15); color: var(--skipped); }
+.status-running  { background: rgba(245,166,35,0.15); color: var(--running); }
+.status-retrying { background: rgba(245,166,35,0.15); color: var(--running); }
+.status-queued, .status-pending, .status-partial, .status-cancelled {
+  background: rgba(139,147,167,0.15); color: var(--muted);
+}
+
+/* CodeMirror should fill its container. */
+.cm-editor { height: 100%; font-size: 13px; }
+
+/* VueFlow tweaks */
+.vue-flow__node { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }

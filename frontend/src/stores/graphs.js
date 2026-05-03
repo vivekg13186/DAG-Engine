@@ -1,0 +1,245 @@
+import { defineStore } from "pinia";
+import { Graphs, Executions, openLiveExecution } from "../api/client.js";
+
+const SAMPLE_YAML = `name: hello-world
+version: "1.0"
+data:
+  who: "world"
+
+nodes:
+  - name: greet
+    action: log
+    inputs:
+      - message: "Hello, \${who}!"
+
+  - name: pause
+    action: delay
+    inputs:
+      - ms: 200
+
+  - name: done
+    action: log
+    inputs:
+      - message: "finished"
+
+edges:
+  - { from: greet, to: pause }
+  - { from: pause, to: done }
+`;
+
+// Tab shapes:
+//   { kind: "graph",     id: "graph:<id>"|"graph:new:<n>", graphId, name, version, yaml, parsed, dirty, validationError, executions }
+//   { kind: "execution", id: "exec:<execId>",              execId, graphId, data, liveSocket, liveEvents[], nodeStatus{} }
+let _newCounter = 0;
+
+export const useGraphsStore = defineStore("graphs", {
+  state: () => ({
+    graphs: [],
+    tabs: [],            // open editors / result viewers
+    activeId: null,
+  }),
+  getters: {
+    activeTab: (s) => s.tabs.find(t => t.id === s.activeId) || null,
+    activeGraphTab: (s) => {
+      const t = s.tabs.find(t => t.id === s.activeId);
+      return t && t.kind === "graph" ? t : null;
+    },
+    activeExecTab: (s) => {
+      const t = s.tabs.find(t => t.id === s.activeId);
+      return t && t.kind === "execution" ? t : null;
+    },
+  },
+  actions: {
+    // ----- Graph list -----
+    async loadGraphs() {
+      this.graphs = await Graphs.list();
+    },
+
+    /**
+     * Refresh the executions list for whichever graph the user is currently
+     * looking at (the active editor tab, or the parent of the active execution
+     * tab). Called periodically from the left pane.
+     */
+    async refreshActiveGraphExecutions() {
+      const t = this.activeTab;
+      const graphId = t?.kind === "graph" ? t.graphId
+                    : t?.kind === "execution" ? t.graphId
+                    : null;
+      if (!graphId) return;
+      const editor = this.tabs.find(x => x.kind === "graph" && x.graphId === graphId);
+      if (!editor) return;
+      try { editor.executions = await Executions.list(graphId); }
+      catch { /* swallow polling errors */ }
+    },
+
+    // ----- Tabs -----
+    activate(tabId) { this.activeId = tabId; },
+
+    closeTab(tabId) {
+      const t = this.tabs.find(x => x.id === tabId);
+      if (!t) return;
+      if (t.liveSocket) try { t.liveSocket.close(); } catch {}
+      this.tabs = this.tabs.filter(x => x.id !== tabId);
+      if (this.activeId === tabId) this.activeId = this.tabs[this.tabs.length - 1]?.id || null;
+    },
+
+    // ----- Open a graph in an editor tab -----
+    async openGraph(id) {
+      const tabId = `graph:${id}`;
+      const existing = this.tabs.find(t => t.id === tabId);
+      if (existing) { this.activeId = tabId; return; }
+      const g = await Graphs.get(id);
+      const executions = await Executions.list(id);
+      this.tabs.push({
+        kind: "graph", id: tabId,
+        graphId: id, name: g.name, version: g.version,
+        yaml: g.yaml, parsed: g.parsed, dirty: false,
+        validationError: null,
+        executions,
+      });
+      this.activeId = tabId;
+    },
+
+    openNewGraph() {
+      _newCounter++;
+      const tabId = `graph:new:${_newCounter}`;
+      this.tabs.push({
+        kind: "graph", id: tabId,
+        graphId: null, name: `untitled-${_newCounter}`, version: null,
+        yaml: SAMPLE_YAML, parsed: null, dirty: true,
+        validationError: null,
+        executions: [],
+      });
+      this.activeId = tabId;
+    },
+
+    setYaml(tabId, yaml) {
+      const t = this.tabs.find(x => x.id === tabId);
+      if (!t || t.kind !== "graph") return;
+      if (t.yaml === yaml) return;
+      t.yaml = yaml;
+      t.dirty = true;
+    },
+
+    // ----- Validate / Save / Run -----
+    async validate(tabId = this.activeId) {
+      const t = this.tabs.find(x => x.id === tabId);
+      if (!t || t.kind !== "graph") return false;
+      try {
+        const r = await Graphs.validate(t.yaml);
+        t.parsed = r.parsed;
+        t.validationError = null;
+        return true;
+      } catch (e) {
+        t.parsed = null;
+        t.validationError = formatError(e);
+        return false;
+      }
+    },
+
+    async save(tabId = this.activeId) {
+      const t = this.tabs.find(x => x.id === tabId);
+      if (!t || t.kind !== "graph") return;
+      if (!await this.validate(tabId)) return;
+      let saved;
+      if (t.graphId) saved = await Graphs.update(t.graphId, t.yaml);
+      else           saved = await Graphs.create(t.yaml);
+      t.graphId = saved.id;
+      t.name = saved.name;
+      t.version = saved.version;
+      t.id = `graph:${saved.id}`;
+      this.activeId = t.id;
+      t.dirty = false;
+      t.executions = await Executions.list(saved.id);
+      await this.loadGraphs();
+    },
+
+    async run(input = {}, tabId = this.activeId) {
+      const t = this.tabs.find(x => x.id === tabId);
+      if (!t || t.kind !== "graph") return null;
+      if (t.dirty || !t.graphId) await this.save(tabId);
+      const { executionId } = await Graphs.execute(t.graphId, input);
+      // Refresh history list
+      t.executions = await Executions.list(t.graphId);
+      // Open the execution as its own tab so the user can navigate to it.
+      this.openExecution(executionId, t.graphId, /*live=*/ true);
+      return executionId;
+    },
+
+    // ----- Execution result tab -----
+    async openExecution(execId, graphId = null, live = false) {
+      const tabId = `exec:${execId}`;
+      let t = this.tabs.find(x => x.id === tabId);
+      if (!t) {
+        t = {
+          kind: "execution", id: tabId,
+          execId, graphId, data: null,
+          graphParsed: null,    // parent graph's parsed DSL (for the viewer)
+          liveSocket: null, liveEvents: [], nodeStatus: {},
+        };
+        this.tabs.push(t);
+      }
+      this.activeId = tabId;
+
+      // Fetch persisted snapshot.
+      try { t.data = await Executions.get(execId); }
+      catch { /* not persisted yet */ }
+      // Seed nodeStatus from the persisted logs.
+      for (const l of (t.data?.nodeLogs || [])) t.nodeStatus[l.node_name] = l.status;
+
+      // Make sure we have the parent graph's parsed DSL so the viewer can render
+      // the full DAG (with edges), even if the user never opened the editor tab.
+      const gid = t.graphId || t.data?.graph_id;
+      if (gid && !t.graphParsed) {
+        const editor = this.tabs.find(x => x.kind === "graph" && x.graphId === gid);
+        if (editor?.parsed) {
+          t.graphParsed = editor.parsed;
+        } else {
+          try {
+            const g = await Graphs.get(gid);
+            t.graphParsed = g.parsed;
+            t.graphId = gid;
+          } catch { /* graph might be deleted */ }
+        }
+      }
+
+      if (live) {
+        if (t.liveSocket) try { t.liveSocket.close(); } catch {}
+        t.liveSocket = openLiveExecution(execId, async (evt) => {
+          t.liveEvents.unshift(evt);
+          if (evt.type === "node:status") t.nodeStatus[evt.node] = evt.status;
+          if (evt.type === "execution:end") {
+            try { t.data = await Executions.get(execId); } catch {}
+          }
+        });
+      }
+    },
+
+    /**
+     * Re-fetch the active execution tab's row + node logs from the API.
+     * Bound to the Refresh button in ExecutionView.
+     */
+    async refreshExecution(tabId = this.activeId) {
+      const t = this.tabs.find(x => x.id === tabId);
+      if (!t || t.kind !== "execution") return;
+      try {
+        const data = await Executions.get(t.execId);
+        t.data = data;
+        // Rebuild nodeStatus from the latest persisted logs (last status wins).
+        const next = {};
+        for (const l of (data?.nodeLogs || [])) next[l.node_name] = l.status;
+        t.nodeStatus = next;
+      } catch (e) {
+        // surface in console; UI can't easily recover from a 404 on a deleted execution
+        console.warn("refreshExecution failed", e);
+      }
+    },
+  },
+});
+
+function formatError(e) {
+  const data = e?.response?.data;
+  if (!data) return e.message;
+  const details = (data.details || []).map(d => ` • ${d.path || ""} ${d.message || ""}`).join("\n");
+  return `${data.message}${details ? "\n" + details : ""}`;
+}

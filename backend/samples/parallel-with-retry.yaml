@@ -1,0 +1,34 @@
+name: parallel-with-retry
+version: "1.0"
+description: Two parallel HTTP calls; one branch retries on failure; conditional final step.
+data:
+  postId: 1
+
+nodes:
+  - name: fetch-post
+    action: http.request
+    inputs:
+      url: "https://jsonplaceholder.typicode.com/posts/${data.postId}"
+    outputs:
+      title: body.title
+      userId: body.userId
+    retry: 2
+    retryDelay: "500ms"
+    onError: continue
+
+  - name: fetch-user
+    action: http.request
+    inputs:
+      url: "https://jsonplaceholder.typicode.com/users/${nodes.fetch-post.output.userId}"
+    outputs:
+      name: body.name
+
+  - name: summarize
+    action: log
+    executeIf: "${nodes.fetch-user.output.name}"
+    inputs:
+      message: "Post '${nodes.fetch-post.output.title}' by ${nodes.fetch-user.output.name}"
+
+edges:
+  - { from: fetch-post, to: fetch-user }
+  - { from: fetch-user, to: summarize }

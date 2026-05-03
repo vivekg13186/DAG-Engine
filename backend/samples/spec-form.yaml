@@ -1,0 +1,37 @@
+name: spec-form-example
+version: "1.0"
+description: |
+  Mirrors the exact authoring style from the spec — inputs/outputs as arrays
+  of single-key maps, bare ${...} variables resolved from `data`.
+
+data:
+  url: "https://jsonplaceholder.typicode.com/posts/1"
+
+nodes:
+  - name: greet
+    action: log
+    inputs:
+      - message: "starting fetch of ${url}"
+
+  - name: fetch
+    action: http.request
+    inputs:
+      - url: "${url}"
+    outputs:
+      - body: weatherResult     # ctx.weatherResult = pluginOutput.body
+      - status: httpStatus      # ctx.httpStatus    = pluginOutput.status
+    retry: 3
+    retryDelay: "10ms"
+    onError: continue
+
+  - name: report
+    action: log
+    executeIf: "${httpStatus == 200}"
+    inputs:
+      - message: "got ${weatherResult.title}"
+
+edges:
+  - from: greet
+    to: fetch
+  - from: fetch
+    to: report

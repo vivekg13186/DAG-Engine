@@ -1,0 +1,113 @@
+import { Worker } from "bullmq";
+import { v4 as uuid } from "uuid";
+import { EventEmitter } from "node:events";
+import { config } from "./config.js";
+import { QUEUE_NAME, redisConnection } from "./queue/queue.js";
+import { pool } from "./db/pool.js";
+import { parseDag } from "./dsl/parser.js";
+import { executeDag } from "./engine/executor.js";
+import { executeBatch } from "./engine/batch.js";
+import { loadBuiltins } from "./plugins/registry.js";
+import { publish } from "./ws/broadcast.js";
+import { log } from "./utils/logger.js";
+
+await loadBuiltins();
+
+async function processExecution(job) {
+  const { executionId, graphId } = job.data;
+  log.info("execution start", { executionId, graphId });
+
+  await pool.query(
+    "UPDATE executions SET status='running', started_at=NOW() WHERE id=$1",
+    [executionId],
+  );
+
+  const { rows } = await pool.query("SELECT yaml, parsed FROM graphs WHERE id=$1", [graphId]);
+  if (rows.length === 0) throw new Error("graph not found");
+
+  // Re-validate (in case the YAML was edited between save and run).
+  const parsed = rows[0].parsed || parseDag(rows[0].yaml);
+
+  // Pull the user-supplied JSON input that was stashed when the execution row
+  // was created. It overlays parsed.data and is exposed as ${data.*} / ${input.*}.
+  const { rows: ctxRows } = await pool.query(
+    "SELECT context FROM executions WHERE id=$1", [executionId],
+  );
+  const userContext = ctxRows[0]?.context || {};
+
+  // Batch mode: if the user-supplied input is { items: [...] } OR a bare array,
+  // run the whole DAG once per item. Otherwise treat it as a single-run object.
+  const batchItems = Array.isArray(userContext) ? userContext
+                   : Array.isArray(userContext?.items) ? userContext.items
+                   : null;
+  const isBatch = Array.isArray(batchItems);
+  const initialData = isBatch ? {} : { ...userContext, input: userContext };
+
+  // Wire engine events into Postgres + WS.
+  const emitter = new EventEmitter();
+  emitter.on("node:status", async (evt) => {
+    await publish({ type: "node:status", ...evt });
+    try {
+      await pool.query(
+        `INSERT INTO node_logs (id, execution_id, node_name, status, attempt, input, output, error, started_at, finished_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,COALESCE($9::timestamptz, NOW()),$10::timestamptz)`,
+        [
+          uuid(),
+          executionId,
+          evt.node,
+          evt.status,
+          evt.attempt || 1,
+          evt.input ? JSON.stringify(evt.input) : null,
+          evt.output ? JSON.stringify(evt.output) : null,
+          evt.error || null,
+          evt.startedAt || null,
+          evt.finishedAt || null,
+        ],
+      );
+    } catch (e) { log.warn("node_log insert failed", { error: e.message }); }
+  });
+  emitter.on("execution:start", evt => publish({ type: "execution:start", ...evt }));
+  emitter.on("execution:end",   evt => publish({ type: "execution:end",   ...evt }));
+
+  let result;
+  try {
+    if (isBatch) {
+      result = await executeBatch(parsed, {
+        executionId, emitter, items: batchItems,
+        concurrency: 4,
+      });
+    } else {
+      result = await executeDag(parsed, { executionId, emitter, initialData });
+    }
+  } catch (e) {
+    await pool.query(
+      "UPDATE executions SET status='failed', finished_at=NOW(), error=$2 WHERE id=$1",
+      [executionId, e.message],
+    );
+    throw e;
+  }
+
+  // For batch runs, persist the per-item summary instead of a single ctx.
+  const finalContext = isBatch
+    ? { batch: true, items: result.items }
+    : result.ctx;
+  await pool.query(
+    "UPDATE executions SET status=$2, finished_at=NOW(), context=$3 WHERE id=$1",
+    [executionId, result.status, JSON.stringify(finalContext)],
+  );
+  log.info("execution end", { executionId, status: result.status });
+  return { status: result.status };
+}
+
+const worker = new Worker(QUEUE_NAME, processExecution, {
+  connection: redisConnection,
+  concurrency: config.workerConcurrency,
+});
+
+worker.on("failed", (job, err) => {
+  log.error("job failed", { id: job?.id, error: err.message });
+});
+
+worker.on("ready", () => log.info("worker ready", { concurrency: config.workerConcurrency }));
+
+process.on("SIGTERM", async () => { await worker.close(); process.exit(0); });

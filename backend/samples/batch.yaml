@@ -1,0 +1,20 @@
+name: batch-fanout
+version: "1.0"
+description: Fan-out: invoke an action once per array item via batchOver.
+data:
+  ids: [1, 2, 3, 4]
+
+nodes:
+  - name: fetch-each
+    action: http.request
+    batchOver: "${data.ids}"
+    inputs:
+      url: "https://jsonplaceholder.typicode.com/posts/${item}"
+
+  - name: report
+    action: log
+    inputs:
+      message: "fetched ${nodes.fetch-each.output.count} posts"
+
+edges:
+  - { from: fetch-each, to: report }

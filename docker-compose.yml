@@ -1,0 +1,65 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: dag_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: dag
+      POSTGRES_PASSWORD: dag
+      POSTGRES_DB: dag_engine
+    ports:
+      - "5432:5432"
+    volumes:
+      - dag_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dag -d dag_engine"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: dag_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    profiles: ["full"]
+    build:
+      context: ./backend
+      dockerfile: ../docker/backend.Dockerfile
+    container_name: dag_backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgres://dag:dag@postgres:5432/dag_engine
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "3000:3000"
+
+  frontend:
+    profiles: ["full"]
+    build:
+      context: ./frontend
+      dockerfile: ../docker/frontend.Dockerfile
+    container_name: dag_frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "5173:80"
+
+volumes:
+  dag_pg_data:

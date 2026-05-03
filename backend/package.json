@@ -1,0 +1,29 @@
+{
+  "name": "dag-engine-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "DAG workflow engine — API, queue worker, plugin runtime",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "worker": "node src/worker.js",
+    "migrate": "node src/db/migrate.js",
+    "test": "node --test test"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "bullmq": "^5.12.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "expr-eval": "^2.0.2",
+    "express": "^4.19.2",
+    "ioredis": "^5.4.1",
+    "js-yaml": "^4.1.0",
+    "morgan": "^1.10.0",
+    "pg": "^8.12.0",
+    "uuid": "^10.0.0",
+    "ws": "^8.18.0"
+  }
+}
