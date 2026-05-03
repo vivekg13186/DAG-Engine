@@ -84,7 +84,8 @@ function onCloseTab() {
     <q-toolbar v-if="isEditor" dense class="q-py-xs bg-grey-11" style="min-height: 36px;">
 
 
-      <q-btn-toggle v-model="editorView" rounded outline no-caps size="sm" toggle-color="primary" :options="[
+      <q-btn-toggle v-model="editorView" rounded flat no-caps size="sm"  toggle-color="primary" 
+      :options="[
         { label: 'YAML', value: 'yaml', icon: 'code' },
         { label: 'Graph', value: 'graph', icon: 'schema' },
       ]" />

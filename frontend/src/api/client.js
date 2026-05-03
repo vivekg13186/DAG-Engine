@@ -18,6 +18,18 @@ export const Executions = {
   remove: (id) => api.delete(`/executions/${id}`),
 };
 
+export const Plugins = {
+  // Returns [{ name, description, inputSchema, outputSchema }]
+  list: () => api.get("/plugins").then(r => r.data),
+};
+
+export const AI = {
+  // { configured, provider, model }
+  status: () => api.get("/ai/status").then(r => r.data),
+  // messages: [{ role: "user"|"assistant", content: string }]
+  chat:   (messages) => api.post("/ai/chat", { messages }).then(r => r.data),
+};
+
 export function openLiveExecution(executionId, onMessage) {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const ws = new WebSocket(`${proto}://${location.host}/ws?executionId=${executionId}`);

@@ -1,0 +1,79 @@
+name: sql-pipeline-demo
+version: "1.0"
+description: |
+  End-to-end SQL pipeline using the sql.* plugins.
+  Creates a temp table, inserts a row, selects it, updates it, calls a function,
+  then deletes the row.
+
+  Default connection is the engine's own database (DATABASE_URL); pass
+  `connectionString` per-node to point at any other Postgres-compatible DB.
+
+data:
+  email: "demo@example.com"
+
+nodes:
+  # 1. Set up a scratch table (raw query form).
+  - name: setup
+    action: sql.execute
+    inputs:
+      query: |
+        CREATE TABLE IF NOT EXISTS demo_users (
+          id    SERIAL PRIMARY KEY,
+          email TEXT UNIQUE NOT NULL,
+          name  TEXT,
+          tier  TEXT NOT NULL DEFAULT 'free'
+        )
+
+  # 2. Insert a row using the structured form.
+  - name: insert
+    action: sql.insert
+    inputs:
+      table: demo_users
+      values:
+        email: "${email}"
+        name: "Demo User"
+      returning: ["id", "email"]
+      onConflict: nothing
+    outputs:
+      rows: createdId         # ctx.createdId = [{id, email}, ...]
+
+  # 3. Select it back to verify.
+  - name: select
+    action: sql.select
+    inputs:
+      table: demo_users
+      columns: ["id", "email", "tier"]
+      where:
+        email: "${email}"
+      orderBy: "id DESC"
+      limit: 1
+    outputs:
+      rows: foundRows         # ctx.foundRows = [...]
+
+  # 4. Promote the user (parameterized raw query form).
+  - name: upgrade
+    action: sql.update
+    inputs:
+      query: "UPDATE demo_users SET tier = $1 WHERE email = $2 RETURNING id, tier"
+      params: ["pro", "${email}"]
+
+  # 5. Call a built-in function (no args) — current_database() returns one row.
+  - name: whoami
+    action: sql.execute
+    inputs:
+      function: "current_database"
+
+  # 6. Clean up the demo row.
+  - name: cleanup
+    action: sql.delete
+    inputs:
+      table: demo_users
+      where:
+        email: "${email}"
+
+edges:
+  - { from: setup,   to: insert }
+  - { from: insert,  to: select }
+  - { from: select,  to: upgrade }
+  - { from: upgrade, to: whoami }
+  - { from: whoami,  to: cleanup }

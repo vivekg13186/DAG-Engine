@@ -1,5 +1,5 @@
 import { defineStore } from "pinia";
-import { Graphs, Executions, openLiveExecution } from "../api/client.js";
+import { Graphs, Executions, Plugins, openLiveExecution } from "../api/client.js";
 
 const SAMPLE_YAML = `name: hello-world
 version: "1.0"
@@ -35,6 +35,7 @@ let _newCounter = 0;
 export const useGraphsStore = defineStore("graphs", {
   state: () => ({
     graphs: [],
+    plugins: [],         // [{ name, description, inputSchema, outputSchema }]
     tabs: [],            // open editors / result viewers
     activeId: null,
   }),
@@ -53,6 +54,13 @@ export const useGraphsStore = defineStore("graphs", {
     // ----- Graph list -----
     async loadGraphs() {
       this.graphs = await Graphs.list();
+    },
+
+    /** Fetch the registered action plugins once (used by editor autocomplete). */
+    async loadPlugins() {
+      if (this.plugins.length) return;
+      try { this.plugins = await Plugins.list(); }
+      catch (e) { console.warn("loadPlugins failed", e); }
     },
 
     /**

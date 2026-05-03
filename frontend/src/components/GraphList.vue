@@ -1,17 +1,25 @@
 <script setup>
-import { onMounted, onBeforeUnmount, computed } from "vue";
+import { onMounted, onBeforeUnmount, computed, ref } from "vue";
 import { useQuasar } from "quasar";
 import { useGraphsStore } from "../stores/graphs.js";
+import { AI } from "../api/client.js";
+import AskAIDialog from "./AskAIDialog.vue";
 
 const store = useGraphsStore();
 const $q = useQuasar();
 
 let pollHandle = null;
+const aiOpen = ref(false);
+const aiConfigured = ref(false);
 
-onMounted(() => {
+onMounted(async () => {
   store.loadGraphs();
+  store.loadPlugins();   // cached for the YAML editor autocomplete
   // Poll the active graph's executions every 5s.
   pollHandle = setInterval(() => store.refreshActiveGraphExecutions(), 5000);
+  // Probe whether AI is configured (hides the button if not).
+  try { aiConfigured.value = (await AI.status()).configured; }
+  catch { aiConfigured.value = false; }
 });
 onBeforeUnmount(() => { if (pollHandle) clearInterval(pollHandle); });
 
@@ -114,12 +122,24 @@ async function onDeleteExecution(row) {
 
 <template>
   <div class="left-pane column no-wrap full-height">
+    <div class="q-pa-xs text-center">
+      <q-img src="/dag_logo copy.png"  style="width: 55px;"></q-img>
+    <b>DAG</b>
+    </div>
     <q-list bordered separator dense class="col-grow scroll" style="border: 0;">
 
       <q-expansion-item dense dense-toggle default-opened label="Flows" header-class="bg-grey-11">
-        <div class="q-pa-xs text-center">
+        <div class="q-pa-xs text-center q-gutter-xs">
           <q-btn outline color="primary" icon="add" lable="New" size="sm" @click.stop="store.openNewGraph()">
             <q-tooltip>New flow</q-tooltip>New
+          </q-btn>
+          <q-btn
+            v-if="aiConfigured"
+            outline color="purple-5" icon="auto_awesome" size="sm" no-caps
+            @click.stop="aiOpen = true"
+          >
+            Ask AI
+            <q-tooltip>Get help, generate workflows</q-tooltip>
           </q-btn>
         </div>
 
@@ -191,6 +211,8 @@ async function onDeleteExecution(row) {
         </div>
       </q-expansion-item>
     </q-list>
+
+    <AskAIDialog v-model="aiOpen" />
   </div>
 </template>
 

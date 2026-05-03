@@ -1,11 +1,10 @@
 // JSON Schema for the DAG DSL.
 export const dagSchema = {
   type: "object",
-  required: ["name", "version", "nodes"],
+  required: ["name", "nodes"],
   additionalProperties: false,
   properties: {
     name: { type: "string", minLength: 1 },
-    version: { type: "string", pattern: "^\\d+\\.\\d+$" },
     description: { type: "string" },
     data: { type: "object", additionalProperties: true, default: {} },
     nodes: {

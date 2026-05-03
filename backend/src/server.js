@@ -9,6 +9,7 @@ import { loadBuiltins } from "./plugins/registry.js";
 import graphsRouter from "./api/graphs.js";
 import executionsRouter from "./api/executions.js";
 import pluginsRouter from "./api/plugins.js";
+import aiRouter from "./api/ai.js";
 import { attachWss } from "./ws/broadcast.js";
 
 await loadBuiltins();
@@ -23,6 +24,7 @@ app.get("/health", (_req, res) => res.json({ ok: true, env: config.env }));
 app.use("/graphs", graphsRouter);
 app.use("/executions", executionsRouter);
 app.use("/plugins", pluginsRouter);
+app.use("/ai", aiRouter);
 
 app.use((err, _req, res, _next) => {
   if (err instanceof HttpError) {
