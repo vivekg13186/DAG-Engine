@@ -2,36 +2,27 @@
 
 ## High-level component diagram
 
-```
-                ┌──────────────────────────┐
-                │        Vue 3 SPA         │
-                │  - Flow list & history   │
-                │  - YAML + graph editor   │
-                │  - Execution viz (WS)    │
-                └────────────┬─────────────┘
-                             │ REST + WS
-                ┌────────────▼─────────────┐
-                │   Express API server     │
-                │  /graphs  /executions    │
-                │  /graphs/validate        │
-                │  WS /ws  (broadcast)     │
-                └───┬───────────────┬──────┘
-                    │ enqueue       │ persist
-            ┌───────▼──────┐  ┌─────▼──────────┐
-            │  BullMQ      │  │  PostgreSQL    │
-            │  (Redis)     │  │  graphs        │
-            └───────┬──────┘  │  executions    │
-                    │         │  node_logs     │
-                    │         └────────────────┘
-              ┌─────▼──────┐
-              │  Worker    │  (one or many)
-              │  ┌──────┐  │
-              │  │Engine│──┼──► Plugin registry
-              │  └──────┘  │     - http.request
-              └────────────┘     - log / delay
-                                 - transform / condition
-```
+```mermaid
+flowchart TB
+    A["Vue 3 SPA<br/>- Flow list & history<br/>- YAML + graph editor<br/>- Execution viz (WS)"]
 
+    B["Express API server<br/>/graphs <br/>/executions<br/>/graphs/validate<br/>WS /ws (broadcast)"]
+
+    C["BullMQ (Redis)"]
+    D["PostgreSQL<br/>graphs<br/>executions<br/>node_logs"]
+
+    E["Worker (one or many)"]
+    F["Engine"]
+    G["Plugin registry<br/>- http.request<br/>- log / delay<br/>- transform / condition ..."]
+
+    A -->|"REST + WS"| B
+    B -->|"enqueue"| C
+    B -->|"persist"| D
+    C --> E
+    E --> F
+    F --> G
+```
+ 
 ## Execution algorithm
 
 1. **Load & validate** — fetch the graph row, parse YAML, validate against the JSON schema, check that every `edge.from`/`edge.to` resolves to a node, and run a DFS cycle check (Kahn's algorithm).

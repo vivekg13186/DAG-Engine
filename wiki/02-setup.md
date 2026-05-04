@@ -1,6 +1,6 @@
 # Setup
 
-Two paths: **local dev** (good for tinkering, fast reloads) or **Docker** (single command, isolated).
+Two paths: **local dev**   or **Docker**  .
 
 ## Prerequisites
 

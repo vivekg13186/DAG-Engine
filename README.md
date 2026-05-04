@@ -8,3 +8,4 @@ retries, conditional branching, batch iteration, and pluggable actions.
 
 
 ![alt text](./images/preview_1.png "Preview1")
+![alt text](./images/preview_2.png "Preview2")
