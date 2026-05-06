@@ -10,6 +10,7 @@ import graphsRouter from "./api/graphs.js";
 import executionsRouter from "./api/executions.js";
 import pluginsRouter from "./api/plugins.js";
 import aiRouter from "./api/ai.js";
+import triggersRouter from "./api/triggers.js";
 import { attachWss } from "./ws/broadcast.js";
 
 await loadBuiltins();
@@ -25,6 +26,7 @@ app.use("/graphs", graphsRouter);
 app.use("/executions", executionsRouter);
 app.use("/plugins", pluginsRouter);
 app.use("/ai", aiRouter);
+app.use("/triggers", triggersRouter);
 
 app.use((err, _req, res, _next) => {
   if (err instanceof HttpError) {

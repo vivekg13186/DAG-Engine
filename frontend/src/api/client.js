@@ -30,6 +30,15 @@ export const AI = {
   chat:   (messages) => api.post("/ai/chat", { messages }).then(r => r.data),
 };
 
+export const Triggers = {
+  list:   (graphId) => api.get("/triggers", graphId ? { params: { graphId } } : undefined).then(r => r.data),
+  types:  () => api.get("/triggers/types").then(r => r.data),
+  get:    (id) => api.get(`/triggers/${id}`).then(r => r.data),
+  create: (data) => api.post("/triggers", data).then(r => r.data),
+  update: (id, patch) => api.put(`/triggers/${id}`, patch).then(r => r.data),
+  remove: (id) => api.delete(`/triggers/${id}`).then(r => r.data),
+};
+
 export function openLiveExecution(executionId, onMessage) {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const ws = new WebSocket(`${proto}://${location.host}/ws?executionId=${executionId}`);

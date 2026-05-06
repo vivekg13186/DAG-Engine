@@ -4,6 +4,7 @@ import { useQuasar } from "quasar";
 import { useGraphsStore } from "../stores/graphs.js";
 import { AI } from "../api/client.js";
 import AskAIDialog from "./AskAIDialog.vue";
+import TriggerDialog from "./TriggerDialog.vue";
 
 const store = useGraphsStore();
 const $q = useQuasar();
@@ -12,11 +13,19 @@ let pollHandle = null;
 const aiOpen = ref(false);
 const aiConfigured = ref(false);
 
+const triggerDialogOpen = ref(false);
+const editingTrigger = ref(null);
+
 onMounted(async () => {
   store.loadGraphs();
-  store.loadPlugins();   // cached for the YAML editor autocomplete
-  // Poll the active graph's executions every 5s.
-  pollHandle = setInterval(() => store.refreshActiveGraphExecutions(), 5000);
+  store.loadPlugins();         // cached for the YAML editor autocomplete
+  store.loadTriggers();
+  store.loadTriggerTypes();
+  // Poll active graph's executions + the trigger list every 5s.
+  pollHandle = setInterval(() => {
+    store.refreshActiveGraphExecutions();
+    store.loadTriggers();
+  }, 5000);
   // Probe whether AI is configured (hides the button if not).
   try { aiConfigured.value = (await AI.status()).configured; }
   catch { aiConfigured.value = false; }
@@ -118,13 +127,76 @@ async function onDeleteExecution(row) {
     position: "bottom",
   });
 }
+
+// ----- Triggers -----
+const triggerColumns = [
+  { name: "action",   label: "" },
+  { name: "status",   label: "", style: "width: 70px;" },
+  { name: "name",     label: "Name", field: "name", align: "left", sortable: true },
+  { name: "type",     label: "Type", field: "type", align: "left", sortable: true, style: "width: 70px;" },
+  { name: "graph",    label: "Flow", field: row => graphName(row.graph_id), align: "left" },
+  { name: "fires",    label: "Fires", field: "fire_count", align: "right", style: "width: 60px;" },
+  { name: "lastFired", label: "Last", field: "last_fired_at", align: "left",
+    format: v => v ? new Date(v).toLocaleString() : "—" },
+];
+
+function graphName(graphId) {
+  const g = store.graphs.find(x => x.id === graphId);
+  return g ? g.name : graphId.slice(0, 8) + "…";
+}
+
+function triggerStatus(row) {
+  if (!row.enabled)      return "skipped";   // grey pill = disabled
+  if (row.last_error)    return "failed";    // red = subscription errored
+  return "success";                          // green = running
+}
+function triggerStatusLabel(row) {
+  if (!row.enabled)   return "off";
+  if (row.last_error) return "error";
+  return "running";
+}
+
+function openNewTrigger() {
+  editingTrigger.value = null;
+  triggerDialogOpen.value = true;
+}
+function openEditTrigger(row) {
+  editingTrigger.value = row;
+  triggerDialogOpen.value = true;
+}
+
+async function onToggleTrigger(row) {
+  const res = await store.toggleTrigger(row.id, !row.enabled);
+  $q.notify({
+    type: res.ok ? "positive" : "negative",
+    message: res.ok
+      ? (row.enabled ? `Stopped "${row.name}"` : `Started "${row.name}"`)
+      : (res.error || "Toggle failed"),
+    timeout: 1800, position: "bottom",
+  });
+}
+
+async function onDeleteTrigger(row) {
+  const ok = await confirm(`Delete trigger "${row.name}"? It will be unsubscribed and removed.`);
+  if (!ok) return;
+  const res = await store.deleteTrigger(row.id);
+  $q.notify({
+    type: res.ok ? "positive" : "negative",
+    message: res.ok ? "Trigger deleted" : (res.error || "Delete failed"),
+    timeout: 1800, position: "bottom",
+  });
+}
+
+const runningCount = computed(() =>
+  store.triggers.filter(t => t.enabled && !t.last_error).length
+);
 </script>
 
 <template>
   <div class="left-pane column no-wrap full-height">
     <div class="q-pa-xs text-center">
       <q-img src="/dag_logo copy.png"  style="width: 55px;"></q-img>
-    <b>DAG</b>
+    <b>DAISY DAG</b>
     </div>
     <q-list bordered separator dense class="col-grow scroll" style="border: 0;">
 
@@ -176,6 +248,82 @@ async function onDeleteExecution(row) {
 
       </q-expansion-item>
 
+      <!-- TRIGGERS expansion -->
+      <q-expansion-item
+        dense dense-toggle default-opened
+        :label="`Triggers (${runningCount} running / ${store.triggers.length})`"
+        header-class="bg-grey-11"
+      >
+        <div class="q-pa-xs text-center">
+          <q-btn
+            outline color="primary" icon="add" size="sm" no-caps
+            label="New trigger"
+            :disable="store.graphs.length === 0"
+            @click.stop="openNewTrigger"
+          >
+            <q-tooltip>{{ store.graphs.length === 0 ? "Save a flow first" : "Create a trigger" }}</q-tooltip>
+          </q-btn>
+        </div>
+
+        <q-table
+          dense flat square
+          :rows="store.triggers"
+          :columns="triggerColumns"
+          row-key="id"
+          :rows-per-page-options="[0]"
+          hide-pagination hide-bottom
+          class="dense-table"
+          no-data-label="No triggers yet — click + to add one."
+        >
+          <template v-slot:body-cell-action="props">
+            <q-td :props="props" @click.stop>
+              <q-btn flat size="xs" dense icon="more_vert" @click.stop>
+                <q-menu>
+                  <q-list style="min-width: 140px" dense>
+                    <q-item clickable v-close-popup @click="onToggleTrigger(props.row)">
+                      <q-item-section avatar>
+                        <q-icon
+                          :name="props.row.enabled ? 'pause_circle' : 'play_circle'"
+                          :color="props.row.enabled ? 'orange' : 'positive'"
+                          size="xs"
+                        />
+                      </q-item-section>
+                      <q-item-section>{{ props.row.enabled ? "Stop" : "Start" }}</q-item-section>
+                    </q-item>
+                    <q-item clickable v-close-popup @click="openEditTrigger(props.row)">
+                      <q-item-section avatar><q-icon name="edit" size="xs" /></q-item-section>
+                      <q-item-section>Edit</q-item-section>
+                    </q-item>
+                    <q-separator />
+                    <q-item clickable v-close-popup @click="onDeleteTrigger(props.row)">
+                      <q-item-section avatar><q-icon name="delete" color="negative" size="xs" /></q-item-section>
+                      <q-item-section>Delete</q-item-section>
+                    </q-item>
+                  </q-list>
+                </q-menu>
+              </q-btn>
+            </q-td>
+          </template>
+
+          <template v-slot:body-cell-status="props">
+            <q-td :props="props">
+              <span class="status-pill" :class="`status-${triggerStatus(props.row)}`">
+                {{ triggerStatusLabel(props.row) }}
+              </span>
+              <q-tooltip v-if="props.row.last_error" anchor="top middle" self="bottom middle">
+                {{ props.row.last_error }}
+              </q-tooltip>
+            </q-td>
+          </template>
+
+          <template v-slot:body-cell-name="props">
+            <q-td :props="props" class="cursor-pointer" @click="openEditTrigger(props.row)">
+              <span>{{ props.row.name }}</span>
+            </q-td>
+          </template>
+        </q-table>
+      </q-expansion-item>
+
       <!-- EXECUTIONS expansion -->
       <q-expansion-item dense dense-toggle default-opened label="Executions" header-class="bg-grey-11">
         <q-table v-if="historyGraphId" dense flat square :rows="executions" :columns="execColumns" row-key="id"
@@ -213,6 +361,7 @@ async function onDeleteExecution(row) {
     </q-list>
 
     <AskAIDialog v-model="aiOpen" />
+    <TriggerDialog v-model="triggerDialogOpen" :trigger="editingTrigger" />
   </div>
 </template>
 

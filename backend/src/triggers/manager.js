@@ -1,0 +1,98 @@
+// Trigger lifecycle manager.
+//
+//   - On startup: load all enabled triggers from DB, call subscribe() on each.
+//   - On fire: insert an execution row with payload as `inputs`, enqueue it.
+//   - On API CRUD: keep the in-memory subscription map in sync.
+//
+// The manager is meant to live inside the worker process so triggers and the
+// queue worker share the same lifetime.
+
+import { v4 as uuid } from "uuid";
+import { pool } from "../db/pool.js";
+import { enqueueExecution } from "../queue/queue.js";
+import { triggerRegistry } from "./registry.js";
+import { log } from "../utils/logger.js";
+
+// triggerId -> { row, subscription, lastError }
+const active = new Map();
+
+/** Load every enabled trigger and start subscriptions. Idempotent. */
+export async function startTriggerManager() {
+  const { rows } = await pool.query(
+    "SELECT * FROM triggers WHERE enabled = TRUE",
+  );
+  for (const row of rows) {
+    try { await startOne(row); }
+    catch (e) {
+      log.warn("trigger start failed", { id: row.id, type: row.type, error: e.message });
+      await pool.query("UPDATE triggers SET last_error=$2, updated_at=NOW() WHERE id=$1", [row.id, e.message]);
+    }
+  }
+  log.info("trigger manager ready", { active: active.size });
+}
+
+export async function stopTriggerManager() {
+  for (const [id] of active) await stopOne(id);
+}
+
+/** Public: re-sync a single trigger by id (called by API on create/update/delete). */
+export async function syncTrigger(triggerId) {
+  const { rows } = await pool.query("SELECT * FROM triggers WHERE id=$1", [triggerId]);
+  const row = rows[0];
+
+  // Deleted or disabled → stop.
+  if (!row || !row.enabled) {
+    await stopOne(triggerId);
+    return;
+  }
+  // Already running with the same config — nothing to do.
+  const cur = active.get(triggerId);
+  if (cur && JSON.stringify(cur.row.config) === JSON.stringify(row.config) && cur.row.type === row.type) {
+    cur.row = row;   // refresh the cached row (for last_fired_at etc.)
+    return;
+  }
+  // Restart with new config.
+  if (cur) await stopOne(triggerId);
+  await startOne(row);
+}
+
+async function startOne(row) {
+  const onFire = (payload) => fireTrigger(row, payload).catch(e => {
+    log.warn("trigger fire failed", { id: row.id, error: e.message });
+  });
+  const subscription = await triggerRegistry.subscribe(row.type, row.config, onFire);
+  active.set(row.id, { row, subscription, lastError: null });
+  await pool.query("UPDATE triggers SET last_error=NULL, updated_at=NOW() WHERE id=$1", [row.id]);
+  log.info("trigger started", { id: row.id, type: row.type, name: row.name });
+}
+
+async function stopOne(triggerId) {
+  const cur = active.get(triggerId);
+  if (!cur) return;
+  try { await cur.subscription.stop(); }
+  catch (e) { log.warn("trigger stop error", { id: triggerId, error: e.message }); }
+  active.delete(triggerId);
+  log.info("trigger stopped", { id: triggerId });
+}
+
+/** Insert an execution row (status=queued, inputs=payload) and enqueue it. */
+async function fireTrigger(row, payload) {
+  const execId = uuid();
+  await pool.query(
+    `INSERT INTO executions (id, graph_id, status, inputs, context)
+     VALUES ($1,$2,'queued',$3,'{}'::jsonb)`,
+    [execId, row.graph_id, JSON.stringify(payload)],
+  );
+  await pool.query(
+    `UPDATE triggers
+       SET last_fired_at = NOW(),
+           fire_count = fire_count + 1,
+           updated_at = NOW()
+     WHERE id = $1`,
+    [row.id],
+  );
+  await enqueueExecution({ executionId: execId, graphId: row.graph_id });
+  log.info("trigger fired", { id: row.id, type: row.type, executionId: execId });
+}
+
+export function activeCount() { return active.size; }

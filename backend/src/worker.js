@@ -10,8 +10,14 @@ import { loadBuiltins } from "./plugins/registry.js";
 import { publish } from "./ws/broadcast.js";
 import { log } from "./utils/logger.js";
 import { logNodeEvent } from "./utils/eventLog.js";
+import { loadTriggerBuiltins } from "./triggers/registry.js";
+import { startTriggerManager, stopTriggerManager } from "./triggers/manager.js";
 
 await loadBuiltins();
+await loadTriggerBuiltins();
+// Subscribe to all enabled triggers on worker boot. Errors per-trigger are
+// logged but don't crash the worker.
+startTriggerManager().catch(e => log.error("trigger manager start failed", { error: e.message }));
 
 async function processExecution(job) {
   const { executionId, graphId } = job.data;
@@ -107,4 +113,8 @@ worker.on("failed", (job, err) => {
 
 worker.on("ready", () => log.info("worker ready", { concurrency: config.workerConcurrency }));
 
-process.on("SIGTERM", async () => { await worker.close(); process.exit(0); });
+process.on("SIGTERM", async () => {
+  await stopTriggerManager();
+  await worker.close();
+  process.exit(0);
+});

@@ -20,9 +20,10 @@
     "axios": "^1.7.7",
     "codemirror": "^6.0.1",
     "dagre": "^0.8.5",
-    "pinia": "^2.2.4",
+    "pinia": "^3.0.4",
     "quasar": "^2.19.3",
-    "vue": "^3.5.12"
+    "vue": "^3.5.12",
+    "vue-router": "^5.0.6"
   },
   "devDependencies": {
     "@quasar/vite-plugin": "^1.11.0",

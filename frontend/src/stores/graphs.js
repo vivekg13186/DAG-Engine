@@ -1,5 +1,5 @@
 import { defineStore } from "pinia";
-import { Graphs, Executions, Plugins, openLiveExecution } from "../api/client.js";
+import { Graphs, Executions, Plugins, Triggers, openLiveExecution } from "../api/client.js";
 
 const SAMPLE_YAML = `name: hello-world
 version: "1.0"
@@ -36,6 +36,9 @@ export const useGraphsStore = defineStore("graphs", {
   state: () => ({
     graphs: [],
     plugins: [],         // [{ name, description, inputSchema, outputSchema }]
+    triggers: [],        // [{ id, name, type, graph_id, config, enabled, last_fired_at, last_error, fire_count, ... }]
+    triggerTypes: [],    // [{ type, description, configSchema }]
+    activeTriggerCount: 0,
     tabs: [],            // open editors / result viewers
     activeId: null,
   }),
@@ -61,6 +64,50 @@ export const useGraphsStore = defineStore("graphs", {
       if (this.plugins.length) return;
       try { this.plugins = await Plugins.list(); }
       catch (e) { console.warn("loadPlugins failed", e); }
+    },
+
+    // ----- Triggers -----
+    async loadTriggers() {
+      try { this.triggers = await Triggers.list(); }
+      catch (e) { console.warn("loadTriggers failed", e); }
+    },
+    async loadTriggerTypes() {
+      if (this.triggerTypes.length) return;
+      try {
+        const r = await Triggers.types();
+        this.triggerTypes = r.types || [];
+        this.activeTriggerCount = r.active || 0;
+      } catch (e) { console.warn("loadTriggerTypes failed", e); }
+    },
+    async createTrigger(data) {
+      try {
+        await Triggers.create(data);
+        await this.loadTriggers();
+        return { ok: true };
+      } catch (e) {
+        return { ok: false, error: e?.response?.data?.message || e.message };
+      }
+    },
+    async updateTrigger(id, patch) {
+      try {
+        await Triggers.update(id, patch);
+        await this.loadTriggers();
+        return { ok: true };
+      } catch (e) {
+        return { ok: false, error: e?.response?.data?.message || e.message };
+      }
+    },
+    async toggleTrigger(id, enabled) {
+      return this.updateTrigger(id, { enabled });
+    },
+    async deleteTrigger(id) {
+      try {
+        await Triggers.remove(id);
+        this.triggers = this.triggers.filter(t => t.id !== id);
+        return { ok: true };
+      } catch (e) {
+        return { ok: false, error: e?.response?.data?.message || e.message };
+      }
     },
 
     /**
