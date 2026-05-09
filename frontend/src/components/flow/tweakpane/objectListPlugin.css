@@ -1,0 +1,152 @@
+/*
+ * Styling for the custom Tweakpane "objectList" plugin.
+ *
+ * Each array item is rendered as a small card with a header (item label +
+ * remove button) and a vertical list of labelled controls below. Colors
+ * lift from the global theme tokens in styles.css so the plugin blends
+ * with everything else in the right drawer.
+ */
+
+.tp-ol {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 6px;
+  font-size: 11px;
+  color: var(--text);
+}
+
+.tp-ol-label {
+  margin-bottom: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.tp-ol-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tp-ol-items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* ─── Card per item ──────────────────────────────────────────────────── */
+.tp-ol-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.tp-ol-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.tp-ol-card-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.tp-ol-remove {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  margin-left: 6px;
+  padding: 0;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+}
+.tp-ol-remove:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+/* ─── Field grid ─────────────────────────────────────────────────────── */
+.tp-ol-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 8px 8px;
+}
+
+.tp-ol-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tp-ol-row-label {
+  flex: 0 0 36%;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.tp-ol-input,
+.tp-ol-select {
+  flex: 1 1 auto;
+  height: 22px;
+  padding: 0 6px;
+  font-size: 11px;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  outline: none;
+}
+.tp-ol-input:focus,
+.tp-ol-select:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary-soft);
+}
+
+.tp-ol-checkwrap {
+  flex: 1 1 auto;
+  display: inline-flex;
+  align-items: center;
+}
+.tp-ol-checkbox {
+  margin: 0;
+  width: 14px;
+  height: 14px;
+  accent-color: var(--primary);
+}
+
+/* ─── Add button ─────────────────────────────────────────────────────── */
+.tp-ol-add {
+  align-self: flex-start;
+  height: 22px;
+  padding: 0 10px;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--primary);
+  background: var(--primary-soft);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.tp-ol-add:hover {
+  border-color: var(--primary);
+}

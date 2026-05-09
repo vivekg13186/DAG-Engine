@@ -1,30 +1,27 @@
 <template>
     <q-layout view="hHh lpR fFf">
 
-        <q-header class="bg-grey-12">
-            <q-toolbar>
+        <q-header class="app-header">
+            <q-toolbar class="app-toolbar">
+                <q-img src="/dag_logo_trans.png" style="width: 28px; height: 28px;" class="q-mr-sm" />
                 <q-toolbar-title>
-                    <div class="q-pa-xs   text-black">
-                        <q-img src="/dag_logo_trans.png" style="width: 55px;"></q-img>
-                        <b>DAISY DAG</b>
-                    </div>
+                    DAISY Workflow Engine
                 </q-toolbar-title>
                 <q-space />
                 <q-btn
-                    flat dense no-caps
+                    flat round dense
                     icon="monitor_heart"
-                    label="Inspector"
-                    class="text-black"
+                    class="btn-icon"
                     @click="onOpenInspector"
                 >
-                    <q-tooltip>Live executions and trigger controls</q-tooltip>
+                    <q-tooltip>Inspector — live executions and trigger controls</q-tooltip>
                 </q-btn>
             </q-toolbar>
         </q-header>
 
         <q-page-container>
-            <q-page>
-                <div class="q-gutter-md q-pa-md">
+            <q-page class="app-page">
+                <div class="q-gutter-md">
                     <AppTable
                         :rows="wf_rows"
                         :columns="wf_columns"

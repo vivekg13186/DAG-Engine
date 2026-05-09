@@ -1,21 +1,31 @@
 <template>
   <q-layout view="hHh lpR fFf">
-    <q-header class="bg-grey-12">
-      <q-toolbar>
-        <q-btn flat round dense icon="arrow_back" @click="goBack" class="text-black">
+    <q-header class="app-header">
+      <q-toolbar class="app-toolbar">
+        <q-btn flat round dense icon="arrow_back" class="btn-toolbar q-mr-sm" @click="goBack">
           <q-tooltip>Back</q-tooltip>
         </q-btn>
-        <q-toolbar-title class="text-black">
-          <b>{{ isNew ? "New trigger" : (form.name || "Trigger") }}</b>
+        <q-toolbar-title>
+          {{ isNew ? "New trigger" : (form.name || "Trigger") }}
+          <span v-if="!isNew && form.type" class="app-subtitle">{{ form.type }}</span>
         </q-toolbar-title>
         <q-space />
-        <q-btn unelevated dense no-caps color="primary" icon="save" label="Save"
-               :loading="saving" :disable="!configParsed.ok" @click="onSave" />
+        <q-btn
+          unelevated round
+          color="primary"
+          icon="save"
+          class="btn-icon-primary"
+          :loading="saving"
+          :disable="!configParsed.ok"
+          @click="onSave"
+        >
+          <q-tooltip>Save</q-tooltip>
+        </q-btn>
       </q-toolbar>
     </q-header>
 
     <q-page-container>
-      <q-page class="q-pa-md">
+      <q-page class="app-page">
         <div v-if="loading" class="row flex-center q-pa-lg">
           <q-spinner-dots color="primary" size="32px" />
         </div>

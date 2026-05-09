@@ -20,6 +20,20 @@ const routes = createApp(App)
   .use(createPinia())
   .use(Quasar, {
     plugins: { Notify, Dialog },
-    config: {},
+    // Light theme is the only theme. Brand colors mirror the CSS tokens in
+    // styles.css so q-btn/color="primary" matches our design palette.
+    config: {
+      dark: false,
+      brand: {
+        primary:   "#2f6df3",
+        secondary: "#475569",
+        accent:    "#2f6df3",
+        positive:  "#16a34a",
+        negative:  "#dc2626",
+        warning:   "#d97706",
+        info:      "#0284c7",
+      },
+      notify:  { position: "bottom", timeout: 2200 },
+    },
   })
   .mount("#app");

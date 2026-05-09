@@ -32,7 +32,7 @@
                 <q-btn
                     flat round dense
                     icon="refresh"
-                    class="btn-icon"
+                    class="btn-toolbar"
                     :loading="refreshing"
                     @click="refresh"
                 >
@@ -64,14 +64,14 @@
                     <q-expansion-item
                         dense dense-toggle default-opened
                         :label="isBatch ? 'Batch items' : 'Inputs'"
-                        header-class="app-section-header"
+                        header-class="bg-grey-11"
                     >
                         <BatchOutputTable v-if="isBatch" :rows="batchItems" />
                         <InputsTable v-else :rows="inputRows" />
                     </q-expansion-item>
 
                     <!-- Nodes summary ───────────────────────────────────────── -->
-                    <q-expansion-item dense dense-toggle default-opened label="Nodes" header-class="app-section-header">
+                    <q-expansion-item dense dense-toggle default-opened label="Nodes" header-class="bg-grey-11">
                         <NodesTable :ctx-nodes="ctxNodes" />
                     </q-expansion-item>
 
@@ -79,7 +79,7 @@
                     <q-expansion-item
                         v-if="execution?.error"
                         dense dense-toggle default-opened
-                        label="Error" header-class="app-section-header"
+                        label="Error" header-class="bg-grey-11"
                     >
                         <pre class="cell-pre q-pa-md">{{ execution.error }}</pre>
                     </q-expansion-item>

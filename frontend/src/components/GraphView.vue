@@ -61,8 +61,8 @@ function rebuild() {
       target: e.to,
       animated: isExec.value && (toS === "running" || toS === "retrying"),
       style: traced
-        ? { stroke: "#4f8cff", strokeWidth: 2 }
-        : { stroke: "#888", strokeWidth: 1 },
+        ? { stroke: "#2f6df3", strokeWidth: 2 }
+        : { stroke: "#cbd2dd", strokeWidth: 1 },
     };
   });
 }
@@ -92,35 +92,31 @@ watch(
 );
 
 function nodeStyle(status) {
-  // Edit mode (status = null): neutral border so nothing implies "pending".
-  if (!status) {
-    return {
-      
-      border: "1px solid #2a3142",
-      borderRadius: "6px",
-      padding: "8px",
-      fontSize: "11px",
-      whiteSpace: "pre-line",
-      width: 170,
-    };
-  }
-  const colors = {
-    success:  "#2ecc71",
-    failed:   "#ff5a5f",
-    skipped:  "#666",
-    running:  "#f5a623",
-    retrying: "#f5a623",
-    pending:  "#2a3142",
-  };
-  return {
-    
-    border: `2px solid ${colors[status] || "#2a3142"}`,
+  // Edit mode (status = null): neutral light border, no status implication.
+  const base = {
+    background: "#ffffff",
+    color: "#1f2937",
     borderRadius: "6px",
     padding: "8px",
     fontSize: "11px",
     whiteSpace: "pre-line",
     width: 170,
+    boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
   };
+  if (!status) {
+    return { ...base, border: "1px solid #e2e6ee" };
+  }
+  // Status colors mirror styles.css (--success, --failed, etc.) so the
+  // status pill in the InstanceViewer toolbar and the node border agree.
+  const colors = {
+    success:  "#16a34a",
+    failed:   "#dc2626",
+    skipped:  "#9aa3b2",
+    running:  "#d97706",
+    retrying: "#d97706",
+    pending:  "#cbd2dd",
+  };
+  return { ...base, border: `2px solid ${colors[status] || "#cbd2dd"}` };
 }
 </script>
 

@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Tweakpane Object List</title>
+
+  <style>
+    body {
+      margin: 0;
+      padding: 20px;
+      background: #1e1e1e;
+      color: white;
+      font-family: sans-serif;
+      display: flex;
+      gap: 20px;
+    }
+
+    #pane {
+      width: 320px;
+    }
+
+    .object-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: #2b2b2b;
+      padding: 6px;
+      border-radius: 4px;
+    }
+
+    .row input[type="text"] {
+      flex: 1;
+      background: #111;
+      border: 1px solid #444;
+      color: white;
+      padding: 4px;
+    }
+
+    button {
+      cursor: pointer;
+      background: #444;
+      border: none;
+      color: white;
+      padding: 4px 8px;
+      border-radius: 4px;
+    }
+
+    pre {
+      width: 400px;
+      background: #111;
+      padding: 12px;
+      border-radius: 6px;
+      overflow: auto;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="pane"></div>
+
+  <pre id="output"></pre>
+<script>
+  import { Pane } from 'tweakpane';
+import { ObjectListPlugin } from './ObjectListPlugin';
+
+const pane = new Pane();
+
+pane.registerPlugin(ObjectListPlugin);
+
+const state = {
+  nodes: [
+    { id: 1, name: 'Node A', enabled: true },
+    { id: 2, name: 'Node B', enabled: false },
+  ],
+};
+
+pane.addBinding(state, 'nodes', {
+  view: 'object-list',
+});
+</script>
+  <script type="module">
+    import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.4/dist/tweakpane.min.js';
+
+    const pane = new Pane({
+      title: 'Workflow Nodes',
+      container: document.getElementById('pane'),
+    });
+
+    const state = {
+      nodes: [
+        { id: 1, name: 'Node A', enabled: true },
+        { id: 2, name: 'Node B', enabled: false },
+      ],
+    };
+
+    function renderObjectList(container, list) {
+      container.innerHTML = '';
+
+      const wrapper = document.createElement('div');
+      wrapper.className = 'object-list';
+
+      list.forEach((item, index) => {
+        const row = document.createElement('div');
+        row.className = 'row';
+
+        // name
+        const nameInput = document.createElement('input');
+        nameInput.type = 'text';
+        nameInput.value = item.name;
+
+        nameInput.addEventListener('input', (e) => {
+          item.name = e.target.value;
+          updateOutput();
+        });
+
+        // enabled
+        const enabledInput = document.createElement('input');
+        enabledInput.type = 'checkbox';
+        enabledInput.checked = item.enabled;
+
+        enabledInput.addEventListener('change', (e) => {
+          item.enabled = e.target.checked;
+          updateOutput();
+        });
+
+        // delete
+        const deleteBtn = document.createElement('button');
+        deleteBtn.textContent = 'Delete';
+
+        deleteBtn.addEventListener('click', () => {
+          list.splice(index, 1);
+          renderObjectList(container, list);
+          updateOutput();
+        });
+
+        row.appendChild(nameInput);
+        row.appendChild(enabledInput);
+        row.appendChild(deleteBtn);
+
+        wrapper.appendChild(row);
+      });
+
+      // add button
+      const addBtn = document.createElement('button');
+      addBtn.textContent = 'Add Item';
+
+      addBtn.addEventListener('click', () => {
+        list.push({
+          id: Date.now(),
+          name: 'New Node',
+          enabled: true,
+        });
+
+        renderObjectList(container, list);
+        updateOutput();
+      });
+
+      wrapper.appendChild(addBtn);
+
+      container.appendChild(wrapper);
+    }
+
+    // Create custom blade
+    const blade = pane.addBlade({
+      view: 'list',
+      label: 'Nodes',
+    });
+
+    renderObjectList(blade.element, state.nodes);
+
+    function updateOutput() {
+      document.getElementById('output').textContent =
+        JSON.stringify(state.nodes, null, 2);
+    }
+
+    updateOutput();
+  </script>
+</body>
+</html>

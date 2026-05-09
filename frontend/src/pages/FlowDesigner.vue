@@ -1,32 +1,49 @@
 <template>
     <q-layout view="hHh lpR fFf">
-        <q-header class="bg-grey-12">
-            <q-toolbar dense>
-                <q-btn flat round dense icon="arrow_back" @click="goBack" class="text-black">
+        <q-header class="app-header">
+            <q-toolbar class="app-toolbar">
+                <q-btn flat round dense icon="arrow_back" class="btn-toolbar q-mr-sm" @click="goBack">
                     <q-tooltip>Back</q-tooltip>
                 </q-btn>
-                <q-toolbar-title class="text-black">
-                    <b>{{ isNew ? "New flow" : model.name }}</b>
-                    <span v-if="serverVersion" class="q-ml-sm text-caption text-grey-7">v{{ serverVersion }}</span>
-                    <span v-if="dirty" class="q-ml-xs text-caption text-orange">●</span>
+                <q-toolbar-title>
+                    {{ isNew ? "New flow" : model.name }}
+                    <span v-if="serverVersion" class="app-subtitle">v{{ serverVersion }}</span>
+                    <span v-if="dirty" class="q-ml-xs text-caption" style="color: var(--warning);">●</span>
                 </q-toolbar-title>
                 <q-space />
 
-                <q-btn flat dense no-caps icon="upload" label="Import" class="text-black q-mr-xs" @click="onImport" />
-                <q-btn flat dense no-caps icon="download" label="Export" class="text-black q-mr-xs" @click="onExport" />
-                <q-btn flat dense no-caps icon="play_arrow" label="Run" class="text-black q-mr-sm" disable>
-                    <q-tooltip>Coming soon</q-tooltip>
+                <q-btn flat round dense icon="upload"   class="btn-icon" @click="onImport">
+                    <q-tooltip>Import YAML</q-tooltip>
                 </q-btn>
-                <q-btn unelevated dense no-caps color="primary" icon="save" label="Save" :loading="saving"
-                    @click="onSave" />
+                <q-btn flat round dense icon="download" class="btn-icon" @click="onExport">
+                    <q-tooltip>Export YAML</q-tooltip>
+                </q-btn>
+                <q-btn flat round dense icon="play_arrow" class="btn-icon" disable>
+                    <q-tooltip>Run (coming soon)</q-tooltip>
+                </q-btn>
+                <q-btn
+                    unelevated round
+                    color="primary"
+                    icon="save"
+                    class="btn-icon-primary"
+                    :loading="saving"
+                    @click="onSave"
+                >
+                    <q-tooltip>Save</q-tooltip>
+                </q-btn>
             </q-toolbar>
 
-            <q-tabs v-model="tab" dense align="left" no-caps active-color="primary" indicator-color="primary"
-                class="text-black">
-                <q-tab name="prompt" label="Prompt" />
-                <q-tab name="overview"   label="Overview" />
+            <q-tabs
+                v-model="tab"
+                dense align="left" no-caps
+                active-color="primary"
+                indicator-color="primary"
+                class="app-tabs"
+            >
+                <q-tab name="prompt"   label="Prompt" />
+                <q-tab name="overview" label="Overview" />
                 <q-tab name="canvas"   label="Flow editor" />
-                <q-tab name="yaml"   label="YAML" />
+                <q-tab name="yaml"     label="YAML" />
             </q-tabs>
         </q-header>
 
@@ -202,10 +219,11 @@ function formatValidationErr(e) {
 </script>
 
 <style scoped>
+/* Header height = 52 (toolbar) + 32 (tabs) ≈ 84px. */
 .full-tabs {
-    height: calc(100vh - 96px);
+    height: calc(100vh - 85px);
+    background: var(--bg);
 }
-
 .full-tabs :deep(.q-tab-panel) {
     height: 100%;
     padding: 0;

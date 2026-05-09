@@ -1,37 +1,303 @@
-/* Project-specific bits that complement Quasar's dark theme. */
+/* ─────────────────────────────────────────────────────────────────────────
+ * Daisy DAG — design tokens + shared utility classes.
+ *
+ * Light theme only. Desktop usage. Colors picked for high readability on
+ * white surfaces and to keep the various "status" semantics distinct at a
+ * glance. Don't add dark-theme variants here — the app intentionally
+ * doesn't support one.
+ *
+ * Pages should compose with the utility classes below rather than defining
+ * their own header / button styling, so behaviour stays consistent:
+ *
+ *     <q-layout view="hHh lpR fFf">
+ *       <q-header class="app-header">
+ *         <q-toolbar class="app-toolbar">…</q-toolbar>
+ *       </q-header>
+ *       <q-page-container>
+ *         <q-page class="app-page">
+ *           <div class="app-section">…</div>
+ *         </q-page>
+ *       </q-page-container>
+ *     </q-layout>
+ * ──────────────────────────────────────────────────────────────────────── */
 
 :root {
-  --bg: #0f1117;
-  --panel: #fff;
-  --panel-2: #fff;
-  --border: #2a3142;
-  --text: #e6e8ee;
-  --muted: #8b93a7;
-  --accent: #4f8cff;
-  --success: #2ecc71;
-  --failed: #ff5a5f;
-  --skipped: #999;
-  --running: #f5a623;
+  /* Surfaces */
+  --bg:           #f4f6fa;   /* page background */
+  --surface:      #ffffff;   /* cards, panels, headers */
+  --surface-2:   #fafbfd;   /* nested / muted surfaces (table headers, etc.) */
+
+  /* Lines + outlines */
+  --border:       #e2e6ee;   /* hairline borders */
+  --border-strong:#cbd2dd;   /* stronger separators */
+
+  /* Text */
+  --text:         #1f2937;
+  --text-muted:   #6b7280;
+  --text-soft:    #9aa3b2;
+
+  /* Brand + semantic */
+  --primary:      #2f6df3;
+  --primary-soft: #e9efff;
+  --success:      #16a34a;
+  --success-soft: #e6f6ec;
+  --warning:      #d97706;
+  --warning-soft: #fdf1e0;
+  --danger:       #dc2626;
+  --danger-soft:  #fde6e6;
+  --info:         #0284c7;
+  --info-soft:    #e3f2fb;
+
+  /* Engine status colors (kept as separate names for legacy class hooks) */
+  --status-success:  var(--success);
+  --status-failed:   var(--danger);
+  --status-skipped:  var(--text-soft);
+  --status-running:  var(--warning);
+  --status-queued:   var(--info);
+
+  /* Radius + shadow */
+  --radius:        6px;
+  --radius-lg:     10px;
+  --shadow-sm:     0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow:        0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+
+  /* Quasar overrides — keep our blue everywhere "primary" is used. */
+  --q-primary:     var(--primary);
+  --q-secondary:   #475569;
+  --q-positive:    var(--success);
+  --q-negative:    var(--danger);
+  --q-warning:     var(--warning);
+  --q-info:        var(--info);
 }
 
-html, body, #app { margin: 0; padding: 0; height: 100%; }
+html, body, #app {
+  margin: 0; padding: 0; height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Roboto, sans-serif;
+  font-feature-settings: "ss01", "ss02";   /* tabular-friendly numerals where available */
+}
 
-/* Status pill helper used in tables and chips. */
+/* Force the Quasar root node to inherit the page background. */
+.q-layout, .q-page-container, .q-page { background: var(--bg); }
+
+/* ─── Page shell ──────────────────────────────────────────────────────── */
+.app-header {
+  background: var(--surface) !important;
+  color: var(--text) !important;
+  border-bottom: 1px solid var(--border);
+  box-shadow: none !important;
+}
+.app-toolbar {
+  min-height: 52px;
+  padding: 0 16px;
+}
+.app-toolbar .q-toolbar-title {
+  font-weight: 600;
+  font-size: 14.5px;
+  color: var(--text);
+}
+.app-toolbar .app-subtitle {
+  margin-left: 8px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+.app-page {
+  padding: 16px;
+}
+.app-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+.app-section + .app-section { margin-top: 16px; }
+
+/* Tabs row that hangs off a page header (e.g. FlowDesigner). */
+.app-tabs {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.app-tabs .q-tab {
+  font-size: 13px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* ─── Buttons (consistent props across all pages) ────────────────────────
+ *  Convention used across FlowDesigner / TriggerDesigner / ConfigDesigner /
+ *  HomePage / Inspector:
+ *
+ *      Primary action     →  <q-btn class="btn-primary"   …>
+ *      Secondary action   →  <q-btn class="btn-secondary" …>  (Quasar `flat`)
+ *      Destructive        →  <q-btn class="btn-danger"    …>
+ *      Toolbar icon-only  →  <q-btn class="btn-toolbar"   …>  (Quasar `flat round dense`)
+ *
+ *  These mostly tweak typography + size so Quasar's own variants stay valid.
+ *  All pages should set `no-caps` so labels read like real English. */
+.btn-primary,
+.btn-secondary,
+.btn-danger,
+.btn-toolbar {
+  font-weight: 500;
+  letter-spacing: 0;
+}
+.btn-primary   { /* paired with: unelevated color="primary"  */ }
+.btn-secondary { /* paired with: flat (default text color)   */ }
+.btn-danger    { /* paired with: unelevated color="negative" */ }
+
+/* ─── Icon-only toolbar action buttons ────────────────────────────────────
+ * The primary actions in our page toolbars (Save / Run / Import / Export /
+ * Refresh) used to be label+icon pills. They've been compressed to round
+ * icon-only buttons with tooltips, so the toolbars stay clean across pages.
+ *
+ * Three flavours, all 32px circles, matched widths so they line up:
+ *   .btn-icon          — secondary action (paired with `flat round dense`)
+ *   .btn-icon-primary  — primary action   (paired with `unelevated round`,
+ *                                          `color="primary"`)
+ *   .btn-icon-danger   — destructive      (paired with `unelevated round`,
+ *                                          `color="negative"`)
+ * ──────────────────────────────────────────────────────────────────────── */
+.btn-icon,
+.btn-icon-primary,
+.btn-icon-danger {
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+  margin-left: 4px;
+}
+.btn-icon {
+  color: var(--text);
+}
+.btn-icon:hover {
+  background: var(--primary-soft) !important;
+  color: var(--primary);
+}
+.btn-icon-primary {
+  /* The Quasar `color` prop already paints the surface; we just nudge the
+     hover into a slightly darker shade. */
+  box-shadow: 0 1px 2px rgba(47, 109, 243, 0.18);
+}
+.btn-icon-primary:hover {
+  filter: brightness(0.95);
+}
+.btn-icon-danger {
+  box-shadow: 0 1px 2px rgba(220, 38, 38, 0.18);
+}
+
+/* ─── Tables ──────────────────────────────────────────────────────────── */
+.q-table thead tr {
+  background: var(--surface-2);
+}
+.q-table thead th {
+  color: var(--text-muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.q-table tbody td { font-size: 12.5px; color: var(--text); }
+.q-table tbody tr:hover { background: var(--primary-soft); }
+.q-table tbody tr:hover td { color: var(--text); }
+
+/* ─── Status pills (used by Inspector / InstanceViewer / GraphView) ──── */
 .status-pill {
-  display: inline-block; padding: 2px 8px; border-radius: 10px;
-  font-size: 11px; font-weight: 600; text-transform: lowercase;
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
 }
-.status-success  { background: rgba(46,204,113,0.15); color: var(--success); }
-.status-failed   { background: rgba(255,90,95,0.15);  color: var(--failed); }
-.status-skipped  { background: rgba(153,153,153,0.15); color: var(--skipped); }
-.status-running  { background: rgba(245,166,35,0.15); color: var(--running); }
-.status-retrying { background: rgba(245,166,35,0.15); color: var(--running); }
-.status-queued, .status-pending, .status-partial, .status-cancelled {
-  background: rgba(139,147,167,0.15); color: var(--muted);
+.status-success  { background: var(--success-soft); color: var(--success); }
+.status-failed   { background: var(--danger-soft);  color: var(--danger); }
+.status-skipped  { background: rgba(154, 163, 178, 0.18); color: var(--text-soft); }
+.status-running  { background: var(--warning-soft); color: var(--warning); }
+.status-retrying { background: var(--warning-soft); color: var(--warning); }
+.status-queued,
+.status-pending,
+.status-partial,
+.status-cancelled {
+  background: var(--info-soft);
+  color: var(--info);
 }
 
-/* CodeMirror should fill its container. */
-.cm-editor { height: 100%; font-size: 13px; }
+/* ─── Code blocks (CodeMirror + raw <pre>) ────────────────────────────── */
+.cm-editor {
+  height: 100%;
+  font-size: 13px;
+  background: var(--surface) !important;
+  color: var(--text) !important;
+}
+.cm-editor .cm-gutters {
+  background: var(--surface-2) !important;
+  border-right: 1px solid var(--border) !important;
+}
+pre.cell-pre {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+}
 
-/* VueFlow tweaks */
-.vue-flow__node { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+/* ─── VueFlow tweaks (light) ──────────────────────────────────────────── */
+.vue-flow {
+  --vf-handle: var(--primary);
+  background: var(--bg);
+}
+.vue-flow__node {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+.vue-flow__background {
+  background-color: var(--bg);
+}
+.vue-flow__handle {
+  background: var(--primary) !important;
+  border: 2px solid var(--surface) !important;
+}
+.vue-flow__edge-path {
+  stroke: var(--border-strong);
+}
+.vue-flow__minimap {
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius);
+}
+.vue-flow__controls {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Minor q-banner reset to keep our colors instead of Quasar's default */
+.q-banner.bg-red-10 { background: var(--danger-soft) !important; color: var(--danger) !important; }
+
+/* ─── Legacy Quasar grey utility overrides ────────────────────────────────
+ * Earlier code reached for `bg-grey-12` / `bg-grey-11` / `bg-grey-10` to
+ * style headers and expansion-item bars. Quasar's defaults are full-saturation
+ * dark greys that look out of place in a light theme. We remap them to our
+ * surface tokens so the existing markup falls into line without per-file edits.
+ * ──────────────────────────────────────────────────────────────────────── */
+.bg-grey-12 { background: var(--surface)   !important; color: var(--text) !important; }
+.bg-grey-11 { background: var(--surface-2) !important; color: var(--text) !important; }
+.bg-grey-10 { background: var(--surface-2) !important; color: var(--text) !important; }
+.text-grey-3, .text-grey-2 { color: var(--text-muted) !important; }
+.text-black { color: var(--text) !important; }
+
+/* Section-style expansion-item header — use class="app-section-header" on
+   <q-expansion-item header-class="…"> for bordered, surface-2 group titles. */
+.app-section-header {
+  background: var(--surface-2) !important;
+  color: var(--text-muted) !important;
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--border);
+}

@@ -14,26 +14,33 @@
 -->
 <template>
   <q-layout view="hHh lpR fFf">
-    <q-header class="bg-grey-12">
-      <q-toolbar dense>
-        <q-btn flat round dense icon="arrow_back" class="text-black" @click="goBack">
+    <q-header class="app-header">
+      <q-toolbar class="app-toolbar">
+        <q-btn flat round dense icon="arrow_back" class="btn-toolbar q-mr-sm" @click="goBack">
           <q-tooltip>Back</q-tooltip>
         </q-btn>
-        <q-toolbar-title class="text-black">
-          <b>{{ isNew ? "New configuration" : (form.name || "Configuration") }}</b>
-          <span v-if="!isNew && form.type" class="q-ml-sm text-caption text-grey-8">
-            {{ typeLabel(form.type) }}
-          </span>
-          <span v-if="dirty" class="q-ml-xs text-caption text-orange">●</span>
+        <q-toolbar-title>
+          {{ isNew ? "New configuration" : (form.name || "Configuration") }}
+          <span v-if="!isNew && form.type" class="app-subtitle">{{ typeLabel(form.type) }}</span>
+          <span v-if="dirty" class="q-ml-xs text-caption" style="color: var(--warning);">●</span>
         </q-toolbar-title>
         <q-space />
-        <q-btn unelevated dense no-caps color="primary" icon="save" label="Save"
-               :loading="saving" :disable="!canSave" @click="onSave" />
+        <q-btn
+          unelevated round
+          color="primary"
+          icon="save"
+          class="btn-icon-primary"
+          :loading="saving"
+          :disable="!canSave"
+          @click="onSave"
+        >
+          <q-tooltip>Save</q-tooltip>
+        </q-btn>
       </q-toolbar>
     </q-header>
 
     <q-page-container>
-      <q-page>
+      <q-page class="app-page">
         <q-banner v-if="loadError" dense class="bg-red-10 text-red-2">
           <template v-slot:avatar><q-icon name="error_outline" /></template>
           {{ loadError }}

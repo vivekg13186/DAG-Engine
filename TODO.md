@@ -1,8 +1,21 @@
-------------
-sub process
+Auth Support
+Backend
+openid-client
+JWT validation via JWKS
+role mapping middleware
+✔ Frontend
+oidc-spa or keycloak-js-style wrapper
+✔ Architecture goal
+No Keycloak/Auth0 logic in business code
+Only “user + claims + roles”
 
-monitor portal with all version 
 
-xpath/css seletor node - takes a xml string + list of queries and return array of result
+Tools with AI
+AI with user questions
 
-support for app db
+Metric using Grafana
+
+https://tweakpane.github.io/docs/getting-started/
+
+Pull Plugin
+Wrapper Plugon

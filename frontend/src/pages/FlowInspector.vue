@@ -17,24 +17,31 @@
 -->
 <template>
     <q-layout view="hHh lpR fFf">
-        <q-header class="bg-grey-12">
-            <q-toolbar>
-                <q-btn flat round dense icon="arrow_back" class="text-black" @click="goHome">
+        <q-header class="app-header">
+            <q-toolbar class="app-toolbar">
+                <q-btn flat round dense icon="arrow_back" class="btn-toolbar q-mr-sm" @click="goHome">
                     <q-tooltip>Home</q-tooltip>
                 </q-btn>
-                <q-toolbar-title class="text-black">
-                    <b>Flow Inspector</b>
-                    <span class="q-ml-sm text-caption text-grey-8">live executions and triggers</span>
+                <q-toolbar-title>
+                    Flow Inspector
+                    <span class="app-subtitle">live executions and triggers</span>
                 </q-toolbar-title>
                 <q-space />
-                <q-btn flat dense no-caps icon="refresh" label="Refresh" class="text-black"
-                       :loading="loading" @click="reload" />
+                <q-btn
+                    flat round dense
+                    icon="refresh"
+                    class="btn-icon"
+                    :loading="loading"
+                    @click="reload"
+                >
+                    <q-tooltip>Refresh</q-tooltip>
+                </q-btn>
             </q-toolbar>
         </q-header>
 
         <q-page-container>
-            <q-page>
-                <div class="q-gutter-md q-pa-md">
+            <q-page class="app-page">
+                <div class="q-gutter-md">
                     <!-- 1. Executions ────────────────────────────────────────── -->
                     <q-table
                         v-model:pagination="execPagination"
@@ -524,19 +531,6 @@ function notify(message, type = "positive") {
 </script>
 
 <style scoped>
-.status-pill {
-    display: inline-block;
-    padding: 1px 8px;
-    border-radius: 10px;
-    font-size: 11px;
-    font-weight: 600;
-    line-height: 16px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-}
-.status-running  { background: rgba( 79,140,255,0.15); color: #4f8cff; }
-.status-queued   { background: rgba(245,166, 35,0.15); color: #f5a623; }
-.status-success  { background: rgba( 46,204,113,0.15); color: #2ecc71; }
-.status-failed   { background: rgba(255, 90, 95,0.15); color: #ff5a5f; }
-.status-skipped  { background: rgba(128,128,128,0.15); color: #888;   }
+/* Status pills + table polish are defined globally in styles.css so they
+   stay consistent across Inspector / InstanceViewer / GraphView. */
 </style>

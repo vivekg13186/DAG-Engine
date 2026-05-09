@@ -6,9 +6,12 @@ import FlowInspector from "./pages/FlowInspector.vue";
 import InstanceViewer from "./pages/InstanceViewer.vue";
 import TriggerDesigner from "./pages/TriggerDesigner.vue";
 import ConfigDesigner from "./pages/ConfigDesigner.vue";
+import PropertyEditor from "./components/PropertyEditor.vue";
 
 const routes = [
   { path: "/", component: HomePage },
+  { path: "/test", component: PropertyEditor
+   },
   { path: "/flowDesigner/:id", component: FlowDesigner },
   { path: "/triggerDesigner/:id", component: TriggerDesigner },
   { path: "/configDesigner/:id", component: ConfigDesigner, name: "configDesigner" },

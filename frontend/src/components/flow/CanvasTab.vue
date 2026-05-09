@@ -58,8 +58,10 @@
 
     <!-- ── Right: properties + per-node toolbar ─────────────────────── -->
     <div v-if="rightOpen" class="right-pane column no-wrap" style="width: 360px;">
-      <q-toolbar dense class="bg-grey-12">
-        <span class="text-caption text-grey">{{ selectedNode ? "Node" : "Flow" }} properties</span>
+      <q-toolbar dense class="panel-toolbar">
+        <span class="text-caption" style="color: var(--text-muted);">
+          {{ selectedNode ? "Node" : "Flow" }} properties
+        </span>
         <q-space />
         <q-btn v-if="selectedNode" dense flat round icon="delete" color="negative" size="sm"
                @click="onDeleteSelected">
@@ -306,8 +308,12 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.canvas-tab    { width: 100%; height: 100%; }
-.flow-container{ flex: 1 1 auto; min-width: 0; height: 100%; position: relative; }
-.left-pane     {  border-right: 1px solid var(--border); }
-.right-pane    { border-left:  1px solid var(--border); }
+.canvas-tab     { width: 100%; height: 100%; background: var(--bg); }
+.flow-container { flex: 1 1 auto; min-width: 0; height: 100%; position: relative; }
+.left-pane      { background: var(--surface); border-right: 1px solid var(--border); }
+.right-pane     { background: var(--surface); border-left:  1px solid var(--border); }
+.panel-toolbar  {
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+}
 </style>

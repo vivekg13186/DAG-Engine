@@ -1,220 +1,291 @@
 <!--
-  Schema-driven property editor. Receives the currently selected VueFlow node
-  via the `node` prop and emits `update` with a full data object whenever any
-  field changes. The parent (CanvasTab) calls `useVueFlow().updateNode(id, …)`
-  to push the change back into the VueFlow store.
+  Node property panel for the FlowDesigner canvas.
 
-  The panel reads node.data.plugin (the live plugin metadata captured when
-  the node was created) so the inputs/outputs editors can be tailored to the
-  action's schema.
+  Now driven by the generic PropertyEditor (Quasar-based) instead of
+  Tweakpane. This file is the bridge:
+    • turns the plugin's JSON-Schema (`plugin.inputSchema`) into the
+      PropertyEditor schema dialect (panels + ui_type-tagged children),
+    • merges the node's flat data fields and inputs/outputs into a
+      single draft object the editor binds against,
+    • emits an `update` payload back to the parent (CanvasTab) every
+      time the editor mutates the draft.
+
+  Schema mapping rules (JSON Schema → PropertyEditor ui_type):
+    - enum          → select
+    - boolean       → toggle
+    - integer/number → input (type="number") with min/max from schema
+    - array<string> → list
+    - array<object> → table (per-column ui_type derived recursively)
+    - object        → textarea (JSON), parsed back on commit
+    - default       → input (type="text")
+
+  Common node-level fields (name, description, executeIf, retry,
+  retryDelay, onError, batchOver) sit in their own "Node" panel above
+  the plugin's inputs.
 -->
 <template>
-  <div class="q-pa-md column q-gutter-sm">
-    <div class="row items-center q-mb-xs">
-      <q-icon name="settings" class="q-mr-sm" />
-      <div class="text-subtitle2">{{ node.data.action || "node" }}</div>
-    </div>
-
-    <q-input
-      :model-value="node.data.name"
-      @update:model-value="set('name', $event)"
-      dense filled label="Name *"
-      :error="!node.data.name"
-      error-message="required"
-    />
-
-    <q-input
-      :model-value="node.data.description"
-      @update:model-value="set('description', $event)"
-      dense filled label="Description"
-      type="textarea" autogrow
-    />
-
-    <!-- Inputs ─ schema-aware where possible, free-form for unknowns -->
-    <q-card flat bordered>
-      <q-card-section class="q-pa-sm">
-        <div class="row items-center">
-          <div class="text-caption text-grey">Inputs</div>
-          <q-space />
-          <q-btn dense flat size="sm" no-caps icon="add" label="Field" @click="addCustomInput" />
-        </div>
-
-        <!-- Schema-required inputs first (always shown) -->
-        <div v-for="key in requiredInputKeys" :key="`req-${key}`" class="row q-col-gutter-xs items-center q-mb-xs">
-          <div class="col-4 text-caption">{{ key }}<span class="text-red">*</span></div>
-          <div class="col-8">
-            <q-input
-              dense outlined
-              :model-value="node.data.inputs?.[key]"
-              @update:model-value="setInput(key, $event)"
-              :placeholder="hintFor(key)"
-            />
-          </div>
-        </div>
-
-        <!-- Custom / extra keys -->
-        <div v-for="row in customInputRows" :key="`ci-${row._k}`" class="row q-col-gutter-xs items-center q-mb-xs">
-          <div class="col-4">
-            <q-input dense outlined v-model="row.k" placeholder="key" @update:model-value="syncCustomInputs" />
-          </div>
-          <div class="col-7">
-            <q-input dense outlined v-model="row.v" placeholder="value or ${expr}" @update:model-value="syncCustomInputs" />
-          </div>
-          <div class="col-1 text-right">
-            <q-btn dense flat round size="sm" icon="delete" color="negative" @click="removeCustomInput(row._k)" />
-          </div>
-        </div>
-      </q-card-section>
-    </q-card>
-
-    <!-- Outputs (pluginField → ctxVar) -->
-    <q-card flat bordered>
-      <q-card-section class="q-pa-sm">
-        <div class="row items-center">
-          <div class="text-caption text-grey">Outputs <span class="text-grey">(plugin field → ctx var)</span></div>
-          <q-space />
-          <q-btn dense flat size="sm" no-caps icon="add" label="Field" @click="addOutput" />
-        </div>
-        <div v-for="row in outputRows" :key="`out-${row._k}`" class="row q-col-gutter-xs items-center q-mb-xs">
-          <div class="col-5">
-            <q-input dense outlined v-model="row.k" placeholder="pluginField (e.g. body.id)" @update:model-value="syncOutputs" />
-          </div>
-          <div class="col-6">
-            <q-input dense outlined v-model="row.v" placeholder="ctxVar" @update:model-value="syncOutputs" />
-          </div>
-          <div class="col-1 text-right">
-            <q-btn dense flat round size="sm" icon="delete" color="negative" @click="removeOutput(row._k)" />
-          </div>
-        </div>
-      </q-card-section>
-    </q-card>
-
-    <q-input
-      :model-value="node.data.executeIf"
-      @update:model-value="set('executeIf', $event)"
-      dense filled label="executeIf"
-      hint="Optional. ${expr} — node is skipped when false."
-    />
-
-    <div class="row q-col-gutter-sm">
-      <div class="col-4">
-        <q-input
-          :model-value="node.data.retry"
-          @update:model-value="set('retry', Number($event) || 0)"
-          dense filled type="number" label="retry"
-        />
-      </div>
-      <div class="col-4">
-        <q-input
-          :model-value="node.data.retryDelay"
-          @update:model-value="set('retryDelay', $event)"
-          dense filled label="retryDelay" hint="ms or 500ms / 2s"
-        />
-      </div>
-      <div class="col-4">
-        <q-select
-          :model-value="node.data.onError"
-          @update:model-value="set('onError', $event)"
-          dense filled label="onError"
-          :options="['continue','terminate']"
-        />
-      </div>
-    </div>
-
-    <q-input
-      :model-value="node.data.batchOver"
-      @update:model-value="set('batchOver', $event)"
-      dense filled label="batchOver"
-      hint="Optional ${array} — runs the action once per item."
-    />
-  </div>
+  <PropertyEditor
+    v-if="schema && draft"
+    :schema="schema"
+    :model-value="draft"
+    @update:model-value="onEditorChange"
+  />
 </template>
 
 <script setup>
-import { computed, ref, watch } from "vue";
+import { ref, computed, watch } from "vue";
+import PropertyEditor from "../../PropertyEditor.vue";
 
 const props = defineProps({
   node: { type: Object, required: true },
 });
 const emit = defineEmits(["update"]);
 
-// Schema lookups (cached per node selection).
-const schema = computed(() => props.node.data?.plugin?.inputSchema || {});
-const requiredInputKeys = computed(() => schema.value.required || []);
+// ── Module-level constants ─────────────────────────────────────────────
+// Declared up-front so the `immediate: true` watcher below can call
+// `buildDraft()` during setup without tripping the TDZ on these `const`s.
+// (Function declarations are hoisted; `const` initialisers are not.)
+const NODE_FIELDS = [
+  "name", "description", "executeIf", "retry", "retryDelay", "onError", "batchOver",
+];
 
-function hintFor(key) {
-  const def = schema.value.properties?.[key];
-  if (!def) return "";
-  if (def.description) return def.description;
-  if (def.type) return `type: ${def.type}`;
-  return "";
+// ── Editor draft ───────────────────────────────────────────────────────
+// One flat object that the editor binds against via dotted paths
+// ("inputs.url", "outputs.body.id"). Rebuilt whenever a different node
+// is selected; in-place edits flow through `onEditorChange`.
+const draft = ref(null);
+
+watch(
+  () => props.node?.id,
+  () => { draft.value = buildDraft(props.node?.data || {}); },
+  { immediate: true },
+);
+
+// Editor → parent: fold the (possibly JSON-stringified) draft back into
+// the canonical node-data shape and emit upward.
+function onEditorChange(next) {
+  draft.value = next;
+  emit("update", foldDraftToData(props.node?.data || {}, next));
 }
 
-// Build the "patch + emit" helper. We never mutate `props.node.data` directly —
-// always emit a fresh data object so the parent's updateNode() takes effect.
-function patch(patchObj) {
-  emit("update", { ...props.node.data, ...patchObj });
-}
-function set(key, value) { patch({ [key]: value }); }
-function setInput(key, value) {
-  patch({ inputs: { ...(props.node.data.inputs || {}), [key]: value } });
+// ── Schema (JSON Schema → PropertyEditor schema) ──────────────────────
+const schema = computed(() => {
+  const inputSchema = props.node?.data?.plugin?.inputSchema || {};
+  return buildSchema(inputSchema);
+});
+
+function buildSchema(inputSchema) {
+  const required   = new Set(inputSchema.required || []);
+  const properties = inputSchema.properties || {};
+
+  // ---- Node panel: common to every node ----------------------------
+  const nodePanel = {
+    name: "Node",
+    children: [
+      { ui_type: "input",    type: "text",   label: "Name",        bind: "name",
+        validation: { required: true } },
+      { ui_type: "textarea",                  label: "Description", bind: "description" },
+      { ui_type: "input",    type: "text",   label: "executeIf",   bind: "executeIf",
+        hint: "Optional ${expr}; node is skipped when false." },
+      { ui_type: "input",    type: "number", label: "Retry",       bind: "retry",
+        validation: { min: 0 } },
+      { ui_type: "input",    type: "text",   label: "RetryDelay",  bind: "retryDelay",
+        hint: "ms or duration string (e.g. 500ms, 2s)" },
+      { ui_type: "select",                    label: "On error",   bind: "onError",
+        options: ["terminate", "continue"], validation: { required: true } },
+      { ui_type: "input",    type: "text",   label: "BatchOver",   bind: "batchOver",
+        hint: "Optional ${array}; runs the action once per item." },
+    ],
+  };
+
+  // ---- Inputs panel: derived from the plugin's schema --------------
+  const inputsChildren = Object.entries(properties).map(([key, def]) =>
+    fieldFromSchema(`inputs.${key}`, key, def, required.has(key))
+  );
+  const inputsPanel = {
+    name: "Inputs",
+    children: inputsChildren.length
+      ? inputsChildren
+      // Plugins without an input schema still get a freeform JSON editor.
+      : [{ ui_type: "textarea", label: "Inputs (JSON)", bind: "__json.inputs", hint: "Raw JSON" }],
+  };
+
+  // ---- Outputs panel: dynamic key/value pairs ----------------------
+  const outputsPanel = {
+    name: "Outputs",
+    collapsed: true,
+    children: [
+      { ui_type: "keyvalues", label: "Plugin field → ctx variable", bind: "outputs",
+        hint: "Maps a plugin output field (dot path ok) to a ctx variable name." },
+    ],
+  };
+
+  return [nodePanel, inputsPanel, outputsPanel];
 }
 
-// ─── Custom input rows (everything not in schema.required) ──────────────────
-const customInputRows = ref([]);
-function rebuildCustomRows() {
-  const reqSet = new Set(requiredInputKeys.value);
-  customInputRows.value = Object.entries(props.node.data.inputs || {})
-    .filter(([k]) => !reqSet.has(k))
-    .map(([k, v]) => ({ _k: k, k, v: typeof v === "string" ? v : JSON.stringify(v) }));
-}
-watch(() => props.node, rebuildCustomRows, { immediate: true });
+/** Convert one JSON Schema property into a PropertyEditor child. */
+function fieldFromSchema(bind, label, def, isRequired) {
+  const validation = {};
+  if (isRequired)               validation.required = true;
+  if (def.minimum !== undefined) validation.min = def.minimum;
+  if (def.maximum !== undefined) validation.max = def.maximum;
+  if (def.format === "uri")     validation.url = true;
 
-function addCustomInput() {
-  customInputRows.value.push({ _k: `_${Date.now()}`, k: "", v: "" });
-}
-function removeCustomInput(_k) {
-  customInputRows.value = customInputRows.value.filter(r => r._k !== _k);
-  syncCustomInputs();
-}
-function syncCustomInputs() {
-  const inputs = {};
-  // Keep required values
-  const reqSet = new Set(requiredInputKeys.value);
-  for (const k of reqSet) {
-    if (props.node.data.inputs?.[k] !== undefined) inputs[k] = props.node.data.inputs[k];
+  // 1) enum → select
+  if (Array.isArray(def.enum)) {
+    return { ui_type: "select", label, bind, options: def.enum, validation, hint: def.description };
   }
-  // Add custom rows
-  for (const r of customInputRows.value) {
-    if (!r.k) continue;
-    let v = r.v;
-    if (typeof v === "string" && /^[\s]*[{\[\d-]/.test(v)) {
-      try { v = JSON.parse(v); } catch { /* keep as string */ }
+  // 2) boolean → toggle
+  if (def.type === "boolean") {
+    return { ui_type: "toggle", label, bind, hint: def.description };
+  }
+  // 3) integer / number → numeric input
+  if (def.type === "integer" || def.type === "number") {
+    return { ui_type: "input", type: "number", label, bind, validation, hint: def.description };
+  }
+  // 4) array of strings → list
+  if (def.type === "array" && (!def.items || def.items.type === "string")) {
+    return { ui_type: "list", label, bind, validation, hint: def.description };
+  }
+  // 5) array of objects → table
+  if (def.type === "array" && def.items?.type === "object" && def.items.properties) {
+    const itemReq = new Set(def.items.required || []);
+    const columns = {};
+    for (const [colKey, colDef] of Object.entries(def.items.properties)) {
+      columns[colKey] = columnFromSchema(colKey, colDef, itemReq.has(colKey));
     }
-    inputs[r.k] = v;
+    return { ui_type: "table", label, bind, columns, validation, hint: def.description };
   }
-  patch({ inputs });
+  // 6) anything else (object, mixed-type arrays, oneOf) → JSON textarea.
+  //
+  // The shadow key lives under a nested `__json` tree so PropertyEditor's
+  // dotted-path resolver walks it cleanly (e.g. `__json.inputs.headers`
+  // becomes draft.__json.inputs.headers, NOT a flat key with a dot in
+  // its name — that mismatched the editor's split('.') walk).
+  if (def.type === "object" || def.type === "array") {
+    return { ui_type: "textarea", label: `${label} (JSON)`, bind: `__json.${bind}`,
+             hint: def.description || "Edit as JSON" };
+  }
+  // 7) default → string input. Includes URL formatting via validation.
+  return {
+    ui_type: "input",
+    type: def.format === "uri" ? "url" : "text",
+    label, bind, validation, hint: def.description,
+  };
 }
 
-// ─── Output rows ────────────────────────────────────────────────────────────
-const outputRows = ref([]);
-function rebuildOutputRows() {
-  outputRows.value = Object.entries(props.node.data.outputs || {})
-    .map(([k, v]) => ({ _k: k, k, v }));
-}
-watch(() => props.node, rebuildOutputRows, { immediate: true });
+/** Convert one item-schema property into a table column descriptor. */
+function columnFromSchema(name, colDef, isRequired) {
+  const validation = isRequired ? { required: true } : {};
+  if (colDef.minimum !== undefined) validation.min = colDef.minimum;
+  if (colDef.maximum !== undefined) validation.max = colDef.maximum;
 
-function addOutput() { outputRows.value.push({ _k: `_${Date.now()}`, k: "", v: "" }); }
-function removeOutput(_k) {
-  outputRows.value = outputRows.value.filter(r => r._k !== _k);
-  syncOutputs();
-}
-function syncOutputs() {
-  const outputs = {};
-  for (const r of outputRows.value) {
-    if (!r.k) continue;
-    outputs[r.k] = r.v;
+  if (Array.isArray(colDef.enum)) {
+    return { name, field: name, label: name, ui_type: "select", options: colDef.enum, validation };
   }
-  patch({ outputs });
+  if (colDef.type === "boolean") {
+    return { name, field: name, label: name, ui_type: "toggle" };
+  }
+  if (colDef.type === "integer" || colDef.type === "number") {
+    return { name, field: name, label: name, ui_type: "input", type: "number", validation };
+  }
+  return { name, field: name, label: name, ui_type: "input", type: "text", validation };
+}
+
+// ── Draft / data marshalling ──────────────────────────────────────────
+//
+// The editor binds against a draft object shaped like:
+//   {
+//     name, description, executeIf, retry, retryDelay, onError, batchOver,
+//     inputs:  { ... },           // mirrors node.data.inputs
+//     outputs: { ... },           // mirrors node.data.outputs
+//     __json: {                   // shadow tree for JSON-text editors
+//       inputs: {
+//         headers: "{ ... }",     // raw JSON text the user is editing
+//         body:    "{ ... }",
+//       },
+//     },
+//   }
+//
+// Schema fields with bind="__json.inputs.headers" walk into the same
+// nested path the seed code wrote, so PropertyEditor's split('.') resolver
+// always finds the value. On every change we re-parse each shadow string
+// and fold the result back into `inputs.<key>` before emitting up.
+//
+// `NODE_FIELDS` is declared near the top of the script so the
+// immediate-mode watcher in setup can call `buildDraft()` without a TDZ
+// error.
+
+function buildDraft(data) {
+  const out = {};
+  for (const k of NODE_FIELDS) out[k] = data[k] ?? defaultFor(k);
+  out.inputs  = { ...(data.inputs  || {}) };
+  out.outputs = { ...(data.outputs || {}) };
+  out.__json  = { inputs: {} };
+
+  // For any input that's a complex type (object / mixed-array), seed a
+  // shadow string under __json.inputs.<key> so the textarea has something
+  // to render. Strings and primitive arrays are edited via their natural
+  // ui_types, not the shadow path.
+  const inputSchema = data.plugin?.inputSchema || {};
+  for (const [k, def] of Object.entries(inputSchema.properties || {})) {
+    if (!def) continue;
+    const v = out.inputs[k];
+    const isShadowed =
+      def.type === "object"
+      || (def.type === "array" && def.items && def.items.type !== "object" && def.items.type !== "string");
+    if (isShadowed) {
+      out.__json.inputs[k] = v == null ? "" : JSON.stringify(v, null, 2);
+    }
+  }
+  // Plugins without an input schema render the whole `inputs` object as
+  // a single JSON textarea bound at __json.inputs (a string at that path).
+  if (!Object.keys(inputSchema.properties || {}).length) {
+    out.__json.inputs = JSON.stringify(out.inputs, null, 2);
+  }
+  return out;
+}
+
+function foldDraftToData(prevData, next) {
+  const merged = { ...prevData };
+  for (const k of NODE_FIELDS) merged[k] = next[k];
+
+  // Start from the editor's inputs and apply any JSON-shadow overrides.
+  const inputs  = { ...(next.inputs  || {}) };
+  const outputs = { ...(next.outputs || {}) };
+
+  // The shadow tree may be:
+  //   1. `__json.inputs` is a STRING — plugin had no input schema, the user
+  //      edited the whole `inputs` object as one JSON blob.
+  //   2. `__json.inputs` is an OBJECT — per-field shadows (e.g. headers, body)
+  //      that should be parsed and folded back into `inputs.<key>`.
+  // Invalid JSON in either case is silently preserved at the prior parsed
+  // value so a half-typed edit doesn't blow away the structured data.
+  const shadow = next.__json?.inputs;
+  if (typeof shadow === "string") {
+    try {
+      const parsed = shadow ? JSON.parse(shadow) : {};
+      Object.assign(inputs, parsed || {});
+    } catch { /* keep prior */ }
+  } else if (shadow && typeof shadow === "object") {
+    for (const [k, raw] of Object.entries(shadow)) {
+      if (typeof raw !== "string") continue;       // unexpected shape — skip
+      if (raw === "") { delete inputs[k]; continue; }
+      try { inputs[k] = JSON.parse(raw); }
+      catch { /* keep prior */ }
+    }
+  }
+
+  merged.inputs  = inputs;
+  merged.outputs = outputs;
+  return merged;
+}
+
+function defaultFor(key) {
+  switch (key) {
+    case "retry":       return 0;
+    case "onError":     return "terminate";
+    default:            return "";
+  }
 }
 </script>

@@ -1,0 +1,96 @@
+/*
+ * Styling for the custom Tweakpane "list" plugin.
+ *
+ * Visual goal: blend in with Tweakpane's native row layout (left label
+ * + right editor, ~28px row height) while keeping the colors aligned to
+ * our app's light theme tokens from styles.css.
+ */
+
+.tp-list {
+  display: flex;
+  align-items: flex-start;
+  padding: 4px 6px;
+  font-size: 11px;
+  color: var(--text);
+  background: transparent;
+}
+
+/* Caption — same width as Tweakpane's built-in label column. */
+.tp-list-label {
+  flex: 0 0 36%;
+  padding-top: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.tp-list-editor {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tp-list-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tp-list-row {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.tp-list-input {
+  flex: 1 1 auto;
+  height: 22px;
+  padding: 0 6px;
+  font-size: 11px;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  outline: none;
+}
+.tp-list-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary-soft);
+}
+
+.tp-list-remove {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+}
+.tp-list-remove:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.tp-list-add {
+  margin-top: 4px;
+  height: 22px;
+  padding: 0 8px;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--primary);
+  background: var(--primary-soft);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  align-self: flex-start;
+}
+.tp-list-add:hover {
+  border-color: var(--primary);
+}

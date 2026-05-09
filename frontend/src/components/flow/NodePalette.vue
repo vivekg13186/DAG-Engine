@@ -14,7 +14,7 @@
 
     <q-list dense bordered separator class="col scroll" style="border: 0;">
       <q-expansion-item v-for="g in groups" :key="g.prefix" dense dense-toggle default-opened :label="g.prefix"
-         header-class="bg-grey-11">
+         header-class="palette-header">
         <q-item v-for="p in g.items" :key="p.name" clickable dense @click="$emit('add', p)" v-ripple>
           <q-item-section>
             <q-item-label>{{ p.name }}</q-item-label>
@@ -59,4 +59,22 @@ const groups = computed(() => {
 });
 </script>
 
-<style scoped></style>
+<style scoped>
+.palette { background: var(--surface); }
+.palette :deep(.palette-header) {
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--border);
+}
+.palette :deep(.q-item) {
+  font-size: 12px;
+}
+.palette :deep(.q-item:hover) {
+  background: var(--primary-soft);
+  color: var(--text);
+}
+</style>

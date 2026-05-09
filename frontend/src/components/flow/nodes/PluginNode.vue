@@ -49,20 +49,27 @@ function iconForAction(action) {
 </script>
 
 <style scoped>
+/* Card-style node — clean light surface, soft shadow.
+   Selected state uses our primary accent. */
 .plugin-node {
-  background: #fff ;
-  color: #1d2230;
-  border: 1px solid #c6c6c6;
-  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
   padding: 8px 10px;
-  font-size: 11px;
-  width: 180px;
-  box-shadow: 0 1px 0 rgba(255,255,255,0.04) inset, 0 2px 6px rgba(0,0,0,0.4);
+  font-size: 11.5px;
+  width: 184px;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow 120ms ease, border-color 120ms ease;
+}
+.plugin-node:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow);
 }
 .plugin-node.selected {
-  border-color: #4f8cff;
-  box-shadow: 0 0 0 2px rgba(79,140,255,0.25);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(47, 109, 243, 0.20);
 }
-.node-name   { font-weight: 600; }
-.node-action { font-size: 10.5px; color: #8b93a7; }
+.node-name   { font-weight: 600; color: var(--text); }
+.node-action { font-size: 10.5px; color: var(--text-muted); }
 </style>

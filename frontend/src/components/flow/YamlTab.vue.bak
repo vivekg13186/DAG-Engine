@@ -3,12 +3,12 @@
   model changes — handy for sanity-checking what will be saved.
 -->
 <template>
-  <div class="column full-height yaml-tab">
-    <q-toolbar dense class="yaml-toolbar">
-      <q-icon name="code" class="q-mr-sm" style="color: var(--text-muted);" />
-      <div class="text-subtitle2" style="color: var(--text);">Generated YAML (read-only)</div>
+  <div class="column full-height">
+    <q-toolbar dense class="bg-grey-12">
+      <q-icon name="code" class="q-mr-sm" />
+      <div class="text-subtitle2">Generated YAML (read-only)</div>
       <q-space />
-      <q-btn dense flat no-caps icon="content_copy" label="Copy" class="btn-secondary" @click="copy" />
+      <q-btn dense flat no-caps icon="content_copy" label="Copy" @click="copy" />
     </q-toolbar>
     <pre class="yaml-pre col scroll">{{ yaml }}</pre>
   </div>
@@ -38,19 +38,13 @@ function copy() {
 </script>
 
 <style scoped>
-.yaml-tab     { background: var(--bg); }
-.yaml-toolbar {
-  background: var(--surface-2);
-  border-bottom: 1px solid var(--border);
-}
 .yaml-pre {
   margin: 0;
   padding: 12px 14px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
   font-size: 12.5px;
   white-space: pre;
   overflow: auto;
-  background: var(--surface);
-  color: var(--text);
+  background: rgba(0,0,0,0.25);
 }
 </style>
