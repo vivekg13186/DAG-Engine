@@ -2,28 +2,60 @@
     <q-layout view="hHh lpR fFf">
         <q-header class="app-header">
             <q-toolbar class="app-toolbar">
-                <q-btn flat round dense icon="arrow_back" class="btn-toolbar q-mr-sm" @click="goBack">
-                    <q-tooltip>Back</q-tooltip>
-                </q-btn>
+                  <q-img src="/dag_logo_trans.png" style="width: 28px; height: 28px;" class="q-mr-sm" @click="goBack"/>
+            
+           
                 <q-toolbar-title>
                     {{ isNew ? "New flow" : model.name }}
-                    <span v-if="serverVersion" class="app-subtitle">v{{ serverVersion }}</span>
                     <span v-if="dirty" class="q-ml-xs text-caption" style="color: var(--warning);">●</span>
                 </q-toolbar-title>
                 <q-space />
 
                 <q-btn flat round dense icon="upload"   class="btn-icon" @click="onImport">
-                    <q-tooltip>Import YAML</q-tooltip>
+                    <q-tooltip>Import JSON</q-tooltip>
                 </q-btn>
                 <q-btn flat round dense icon="download" class="btn-icon" @click="onExport">
-                    <q-tooltip>Export YAML</q-tooltip>
-                </q-btn>
-                <q-btn flat round dense icon="play_arrow" class="btn-icon" disable>
-                    <q-tooltip>Run (coming soon)</q-tooltip>
+                    <q-tooltip>Export JSON</q-tooltip>
                 </q-btn>
                 <q-btn
-                    unelevated round
-                    color="primary"
+                    flat round dense
+                    icon="archive"
+                    class="btn-icon"
+                    :disable="isNew || saving || archiving"
+                    :loading="archiving"
+                    @click="onArchive"
+                >
+                    <q-tooltip>{{
+                        isNew ? "Save the flow once before archiving" : "Archive a snapshot of the current state"
+                    }}</q-tooltip>
+                </q-btn>
+                <q-btn
+                    flat round dense
+                    icon="history"
+                    class="btn-icon"
+                    :disable="isNew"
+                    @click="historyOpen = true"
+                >
+                    <q-tooltip>{{
+                        isNew ? "Save the flow once before viewing history" : "View archive history"
+                    }}</q-tooltip>
+                </q-btn>
+                <q-btn
+                    flat round dense
+                    icon="play_arrow"
+                    class="btn-icon"
+                    :loading="running"
+                    :disable="running || saving || isNew"
+                    @click="onRunClick"
+                >
+                    <q-tooltip>{{
+                        isNew
+                            ? "Save the flow once before running"
+                            : "Run with input"
+                    }}</q-tooltip>
+                </q-btn>
+                <q-btn
+                    flat round dense
                     icon="save"
                     class="btn-icon-primary"
                     :loading="saving"
@@ -43,7 +75,7 @@
                 <q-tab name="prompt"   label="Prompt" />
                 <q-tab name="overview" label="Overview" />
                 <q-tab name="canvas"   label="Flow editor" />
-                <q-tab name="yaml"     label="YAML" />
+                <q-tab name="json"     label="JSON" />
             </q-tabs>
         </q-header>
 
@@ -68,10 +100,56 @@
                     <q-tab-panel name="canvas" class="q-pa-none">
                         <CanvasTab v-model="model" :plugins="plugins" />
                     </q-tab-panel>
-                    <q-tab-panel name="yaml" class="q-pa-none">
-                        <YamlTab v-model="model" />
+                    <q-tab-panel name="json" class="q-pa-none">
+                        <JsonTab v-model="model" />
                     </q-tab-panel>
                 </q-tab-panels>
+
+                <!-- Run dialog — collects optional JSON input then enqueues -->
+                <RunDialog v-model="runDialogOpen" :initial="lastRunInput" @submit="onRunSubmit" />
+
+                <!-- History drawer — lists archive snapshots, restore in one click -->
+                <q-dialog v-model="historyOpen" position="right" full-height>
+                    <q-card style="width: 360px; max-width: 92vw;" class="column no-wrap">
+                        <q-toolbar class="app-toolbar">
+                            <q-icon name="history" class="q-mr-sm" />
+                            <q-toolbar-title>History</q-toolbar-title>
+                            <q-btn flat round dense icon="close" v-close-popup />
+                        </q-toolbar>
+                        <q-separator />
+                        <div v-if="historyLoading" class="row flex-center q-pa-lg">
+                            <q-spinner-dots color="primary" size="32px" />
+                        </div>
+                        <div v-else-if="!archives.length"
+                             class="text-caption text-grey q-pa-md text-center">
+                            No archives yet. Click the
+                            <q-icon name="archive" size="14px" class="q-mx-xs" />
+                            button to snapshot the current state.
+                        </div>
+                        <q-list v-else dense separator class="col scroll">
+                            <q-item v-for="a in archives" :key="a.id">
+                                <q-item-section>
+                                    <q-item-label>
+                                        {{ new Date(a.archived_at).toLocaleString() }}
+                                    </q-item-label>
+                                    <q-item-label v-if="a.reason" caption>
+                                        {{ a.reason }}
+                                    </q-item-label>
+                                </q-item-section>
+                                <q-item-section side>
+                                    <q-btn
+                                        flat dense round size="sm"
+                                        icon="restore"
+                                        :loading="restoringId === a.id"
+                                        @click="onRestore(a)"
+                                    >
+                                        <q-tooltip>Restore this snapshot</q-tooltip>
+                                    </q-btn>
+                                </q-item-section>
+                            </q-item>
+                        </q-list>
+                    </q-card>
+                </q-dialog>
             </q-page>
         </q-page-container>
     </q-layout>
@@ -86,11 +164,12 @@ import { Graphs, Plugins } from "../api/client";
 import PromptTab from "../components/flow/PromptTab.vue";
 import OverviewTab from "../components/flow/OverviewTab.vue";
 import CanvasTab from "../components/flow/CanvasTab.vue";
-import YamlTab from "../components/flow/YamlTab.vue";
+import JsonTab from "../components/flow/JsonTab.vue";
+import RunDialog from "../components/RunDialog.vue";
 import {
     emptyModel,
-    parseYamlToModel,
-    serializeModelToYaml,
+    parseDslToModel,
+    serializeModelToDsl,
     pickFileAsText,
     downloadText,
 } from "../components/flow/flowModel.js";
@@ -109,12 +188,28 @@ const dirty = ref(false);
 
 const model = ref(emptyModel());
 const plugins = ref([]);
-// The server-tracked auto-incremented version — surfaced read-only in the
-// header so the user can see which revision they're editing. Not part of
-// the model / YAML.
-const serverVersion = ref(null);
 
-let lastSavedYaml = "";
+// ── Run dialog state ───────────────────────────────────────────────────
+// `runDialogOpen` toggles the JSON-input dialog. `running` is the loading
+// flag that disables the toolbar Run button while we save + enqueue.
+// `lastRunInput` is the last successful payload, prefilled into the
+// dialog so users running the same flow repeatedly don't have to retype.
+const runDialogOpen = ref(false);
+const running       = ref(false);
+const lastRunInput  = ref({});
+
+// ── Archive / history state ────────────────────────────────────────────
+// Archives are explicit snapshots stored server-side. Editor saves no
+// longer create rows; only the Archive button does.
+const archiving      = ref(false);
+const historyOpen    = ref(false);
+const historyLoading = ref(false);
+const archives       = ref([]);
+const restoringId    = ref(null);
+
+// The text we last successfully saved — used as a cheap dirty-check via
+// equality with the current serialised model.
+let lastSavedDsl = "";
 
 onMounted(async () => {
     // Plugins (for the canvas palette + property panel autocomplete).
@@ -122,15 +217,14 @@ onMounted(async () => {
 
     if (isNew.value) {
         tab.value = "prompt";              // new flows start on the AI prompt tab
-        lastSavedYaml = serializeModelToYaml(model.value);
+        lastSavedDsl = serializeModelToDsl(model.value);
         loading.value = false;
         return;
     }
     try {
         const g = await Graphs.get(route.params.id);
-        model.value = parseYamlToModel(g.yaml);
-        lastSavedYaml = g.yaml;
-        serverVersion.value = g.version ?? null;
+        model.value = parseDslToModel(g.dsl);
+        lastSavedDsl = g.dsl;
     } catch (e) {
         loadError.value = errMsg(e);
     } finally {
@@ -140,7 +234,7 @@ onMounted(async () => {
 
 // Track whether the model has diverged from the last saved version.
 watch(model, (m) => {
-    try { dirty.value = serializeModelToYaml(m) !== lastSavedYaml; }
+    try { dirty.value = serializeModelToDsl(m) !== lastSavedDsl; }
     catch { dirty.value = true; }
 }, { deep: true });
 
@@ -148,20 +242,20 @@ watch(model, (m) => {
 async function onSave() {
     saving.value = true;
     try {
-        const yaml = serializeModelToYaml(model.value);
+        const dsl = serializeModelToDsl(model.value);
         // Validate first — surfaces parser errors early.
-        try { await Graphs.validate(yaml); }
+        try { await Graphs.validate(dsl); }
         catch (e) { throw new Error(formatValidationErr(e)); }
 
         let saved;
-        if (isNew.value) saved = await Graphs.create(yaml);
-        else saved = await Graphs.update(route.params.id, yaml);
+        if (isNew.value) saved = await Graphs.create(dsl);
+        else saved = await Graphs.update(route.params.id, dsl);
 
-        lastSavedYaml = yaml;
+        lastSavedDsl = dsl;
         dirty.value = false;
-        serverVersion.value = saved.version ?? null;
-        $q.notify({ type: "positive", message: `Saved "${saved.name}" v${saved.version}`, position: "bottom" });
-        router.replace({ path: `/flowDesigner/${saved.id}` });
+        $q.notify({ type: "positive", message: `Saved "${saved.name}"`, position: "bottom" });
+        // ID is stable for updates; only navigate after a successful create.
+        if (isNew.value) router.replace({ path: `/flowDesigner/${saved.id}` });
     } catch (e) {
         $q.notify({ type: "negative", message: `Save failed: ${e.message}`, position: "bottom" });
     } finally {
@@ -169,11 +263,181 @@ async function onSave() {
     }
 }
 
+// ── Run flow ────────────────────────────────────────────────────────────
+//
+// Three steps, each with its own failure mode:
+//   1. If the model has unsaved changes, prompt the user to save first.
+//      We force a save (which validates server-side) before enqueueing
+//      so the execution always runs against a real DB row.
+//   2. Open RunDialog so the user can supply JSON input. The dialog
+//      handles JSON validation; we receive the parsed value via @submit.
+//   3. POST /graphs/:id/execute, then route the user to InstanceViewer
+//      for the freshly-enqueued run so they can watch progress.
+//
+// The toolbar button is disabled while any of these are in flight, and
+// also disabled for new (unsaved) flows — Graphs.execute requires an id.
+async function onRunClick() {
+    if (running.value) return;
+    if (isNew.value) {
+        $q.notify({
+            type: "warning",
+            message: "Save the flow once before running it.",
+            position: "bottom",
+        });
+        return;
+    }
+    if (dirty.value) {
+        const ok = await new Promise((resolve) => {
+            $q.dialog({
+                title: "Unsaved changes",
+                message: "Save the flow before running?",
+                ok: { label: "Save & run", color: "primary", unelevated: true, "no-caps": true },
+                cancel: { label: "Cancel", flat: true, "no-caps": true },
+                persistent: true,
+            })
+                .onOk(() => resolve(true))
+                .onDismiss(() => resolve(false));
+        });
+        if (!ok) return;
+        await onSave();
+        if (dirty.value) return;          // save failed — bail
+    }
+    runDialogOpen.value = true;
+}
+
+async function onRunSubmit(input) {
+    runDialogOpen.value = false;
+    if (!route.params.id || isNew.value) return;
+    running.value = true;
+    try {
+        const result = await Graphs.execute(route.params.id, input);
+        lastRunInput.value = input || {};
+        $q.notify({
+            type: "positive",
+            message: `Execution queued (${(result.executionId || "").slice(0, 8)}…)`,
+            position: "bottom",
+            actions: [{
+                label: "Open inspector",
+                color: "white",
+                handler: () => router.push({ name: "instanceViewer", params: { id: result.executionId } }),
+            }],
+            timeout: 4000,
+        });
+        // Route to the read-only instance viewer so the user sees per-node
+        // progress as soon as the worker starts the run.
+        router.push({ name: "instanceViewer", params: { id: result.executionId } });
+    } catch (e) {
+        $q.notify({
+            type: "negative",
+            message: `Run failed: ${errMsg(e)}`,
+            position: "bottom",
+        });
+    } finally {
+        running.value = false;
+    }
+}
+
+// ── Archive / history ──────────────────────────────────────────────────
+//
+// Archive = explicit user-initiated snapshot copied into archived_graphs
+// on the server. Distinct from save, which now always updates in place.
+// Restoring an archive overwrites the live row with the snapshot's DSL —
+// after restore we re-load the model from the live row so the editor
+// reflects the new state.
+
+async function onArchive() {
+    if (archiving.value || isNew.value) return;
+    if (dirty.value) {
+        const ok = await new Promise((resolve) => {
+            $q.dialog({
+                title: "Unsaved changes",
+                message: "Save the flow before archiving the snapshot?",
+                ok: { label: "Save & archive", color: "primary", unelevated: true, "no-caps": true },
+                cancel: { label: "Cancel", flat: true, "no-caps": true },
+                persistent: true,
+            })
+                .onOk(() => resolve(true))
+                .onDismiss(() => resolve(false));
+        });
+        if (!ok) return;
+        await onSave();
+        if (dirty.value) return;
+    }
+    archiving.value = true;
+    try {
+        const reason = window.prompt("Optional reason / label for this snapshot:") || "";
+        const result = await Graphs.archive(route.params.id, reason);
+        $q.notify({
+            type: "positive",
+            message: `Archived snapshot ${(result?.archiveId || "").slice(0, 8)}…`,
+            position: "bottom",
+        });
+        if (historyOpen.value) await loadArchives();
+    } catch (e) {
+        $q.notify({ type: "negative", message: `Archive failed: ${errMsg(e)}`, position: "bottom" });
+    } finally {
+        archiving.value = false;
+    }
+}
+
+async function loadArchives() {
+    if (!route.params.id || isNew.value) return;
+    historyLoading.value = true;
+    try {
+        archives.value = await Graphs.archives(route.params.id);
+    } catch (e) {
+        $q.notify({ type: "negative", message: `Could not load archives: ${errMsg(e)}`, position: "bottom" });
+    } finally {
+        historyLoading.value = false;
+    }
+}
+
+watch(historyOpen, (open) => {
+    if (open) loadArchives();
+});
+
+async function onRestore(archive) {
+    if (!archive?.id || restoringId.value) return;
+    if (dirty.value) {
+        const ok = await new Promise((resolve) => {
+            $q.dialog({
+                title: "Discard unsaved changes?",
+                message: "Restoring will replace the live workflow with the snapshot. Unsaved edits will be lost.",
+                ok: { label: "Restore", color: "warning", unelevated: true, "no-caps": true },
+                cancel: { label: "Cancel", flat: true, "no-caps": true },
+                persistent: true,
+            })
+                .onOk(() => resolve(true))
+                .onDismiss(() => resolve(false));
+        });
+        if (!ok) return;
+    }
+    restoringId.value = archive.id;
+    try {
+        await Graphs.restore(route.params.id, archive.id);
+        // Re-load the live row so the editor mirrors what's on disk now.
+        const g = await Graphs.get(route.params.id);
+        model.value = parseDslToModel(g.dsl);
+        lastSavedDsl = g.dsl;
+        dirty.value = false;
+        $q.notify({
+            type: "positive",
+            message: `Restored snapshot from ${new Date(archive.archived_at).toLocaleString()}`,
+            position: "bottom",
+        });
+        historyOpen.value = false;
+    } catch (e) {
+        $q.notify({ type: "negative", message: `Restore failed: ${errMsg(e)}`, position: "bottom" });
+    } finally {
+        restoringId.value = null;
+    }
+}
+
 async function onImport() {
-    const text = await pickFileAsText(".yaml,.yml,.txt");
+    const text = await pickFileAsText(".json,.txt");
     if (!text) return;
     try {
-        model.value = parseYamlToModel(text);
+        model.value = parseDslToModel(text);
         $q.notify({ type: "positive", message: "Imported", timeout: 1500, position: "bottom" });
     } catch (e) {
         $q.notify({ type: "negative", message: `Import failed: ${e.message}`, position: "bottom" });
@@ -181,9 +445,9 @@ async function onImport() {
 }
 
 function onExport() {
-    const yaml = serializeModelToYaml(model.value);
+    const dsl = serializeModelToDsl(model.value);
     const safeName = (model.value.name || "flow").replace(/[^A-Za-z0-9_.-]/g, "_");
-    downloadText(`${safeName}.yaml`, yaml);
+    downloadText(`${safeName}.json`, dsl, "application/json");
 }
 
 function goBack() {
@@ -222,7 +486,6 @@ function formatValidationErr(e) {
 /* Header height = 52 (toolbar) + 32 (tabs) ≈ 84px. */
 .full-tabs {
     height: calc(100vh - 85px);
-    background: var(--bg);
 }
 .full-tabs :deep(.q-tab-panel) {
     height: 100%;

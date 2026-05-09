@@ -156,7 +156,23 @@ function fieldFromSchema(bind, label, def, isRequired) {
     }
     return { ui_type: "table", label, bind, columns, validation, hint: def.description };
   }
-  // 6) anything else (object, mixed-type arrays, oneOf) → JSON textarea.
+  // 6) string flagged as multi-line → plain textarea (binds straight to
+  //    inputs.<key>, no JSON shadow). Triggered by a couple of schema
+  //    conventions:
+  //      · format: "textarea"   (preferred)
+  //      · format: "multiline"
+  //      · contentMediaType: "text/plain"
+  //    Used by plugins like `transform` whose `expression` field is a
+  //    raw FEEL block and benefits from a multi-line edit surface.
+  if (
+    def.type === "string" &&
+    (def.format === "textarea" ||
+     def.format === "multiline" ||
+     def.contentMediaType === "text/plain")
+  ) {
+    return { ui_type: "textarea", label, bind, validation, hint: def.description };
+  }
+  // 7) anything else (object, mixed-type arrays, oneOf) → JSON textarea.
   //
   // The shadow key lives under a nested `__json` tree so PropertyEditor's
   // dotted-path resolver walks it cleanly (e.g. `__json.inputs.headers`
@@ -166,7 +182,7 @@ function fieldFromSchema(bind, label, def, isRequired) {
     return { ui_type: "textarea", label: `${label} (JSON)`, bind: `__json.${bind}`,
              hint: def.description || "Edit as JSON" };
   }
-  // 7) default → string input. Includes URL formatting via validation.
+  // 8) default → string input. Includes URL formatting via validation.
   return {
     ui_type: "input",
     type: def.format === "uri" ? "url" : "text",

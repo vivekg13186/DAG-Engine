@@ -10,7 +10,7 @@
                 <q-space />
                 <q-btn
                     flat round dense
-                    icon="monitor_heart"
+                    icon="monitor"
                     class="btn-icon"
                     @click="onOpenInspector"
                 >
@@ -73,7 +73,6 @@ const config_rows = ref([]);
 const wf_columns = [
     { name: "action", label: "", style: "width:2px" },
     { name: "name", label: "Name", field: "name", align: "left", sortable: true },
-    { name: "version", label: "Version", field: "version", align: "left", sortable: true, style: "width: 10px;" },
     {
         name: "updated", label: "Updated", field: "updated_at", align: "left", sortable: true,
         format: v => v ? new Date(v).toLocaleString() : "",
@@ -112,7 +111,7 @@ const config_columns = [
 
 function graphName(graphId) {
     const g = wf_rows.value.find(x => x.id === graphId);
-    return g ? `${g.name} (v${g.version})` : (graphId ? graphId.slice(0, 8) + "…" : "");
+    return g ? g.name : (graphId ? graphId.slice(0, 8) + "…" : "");
 }
 function triggerStatusLabel(row) {
     if (!row?.enabled) return "off";
@@ -144,8 +143,11 @@ function onAddWorkflow() {
 function onEditWorkflow(row) {
     router.push({ path: `/flowDesigner/${row.id}` });
 }
+// Soft-delete the workflow. Workflows are now single-row (no versions),
+// so this removes the live row outright; explicit snapshots in
+// archived_graphs are untouched and remain queryable.
 async function onDeleteWorkflow(row) {
-    if (!await confirm(`Delete workflow "${row.name}" (v${row.version})?`)) return;
+    if (!await confirm(`Delete workflow "${row.name}"?`)) return;
     try {
         await Graphs.remove(row.id);
         notify(`Deleted "${row.name}"`, "positive");
@@ -154,6 +156,7 @@ async function onDeleteWorkflow(row) {
         notify(`Delete failed: ${errMsg(e)}`, "negative");
     }
 }
+
 async function onDeleteSelectedWorkflows(rows) {
     if (!rows?.length) return;
     if (!await confirm(`Delete ${rows.length} workflow(s)?`)) return;

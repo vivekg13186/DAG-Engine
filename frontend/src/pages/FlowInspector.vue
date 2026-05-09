@@ -19,12 +19,10 @@
     <q-layout view="hHh lpR fFf">
         <q-header class="app-header">
             <q-toolbar class="app-toolbar">
-                <q-btn flat round dense icon="arrow_back" class="btn-toolbar q-mr-sm" @click="goHome">
-                    <q-tooltip>Home</q-tooltip>
-                </q-btn>
+                     <q-img src="/dag_logo_trans.png" style="width: 28px; height: 28px;" class="q-mr-sm" @click="goHome" />
                 <q-toolbar-title>
-                    Flow Inspector
-                    <span class="app-subtitle">live executions and triggers</span>
+                   Flow Inspector
+                   
                 </q-toolbar-title>
                 <q-space />
                 <q-btn
@@ -190,7 +188,7 @@ const $q = useQuasar();
 // ── State ──────────────────────────────────────────────────────────────────
 const exec_rows     = ref([]);
 const trigger_rows  = ref([]);
-const wf_rows       = ref([]);   // graphs lookup for displaying name+version
+const wf_rows       = ref([]);   // graphs lookup for displaying flow names
 const execFilter    = ref("");
 const triggerFilter = ref("");
 const loading       = ref(false);

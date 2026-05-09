@@ -18,6 +18,7 @@
     <q-layout view="hHh lpR fFf">
         <q-header class="app-header">
             <q-toolbar class="app-toolbar">
+            
                 <q-btn flat round dense icon="arrow_back" class="btn-toolbar q-mr-sm" @click="goBack">
                     <q-tooltip>Back</q-tooltip>
                 </q-btn>
@@ -94,7 +95,7 @@ import { ref, computed, onMounted, onBeforeUnmount, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useQuasar } from "quasar";
 import { Graphs, Executions } from "../api/client";
-import { parseYamlToModel } from "../components/flow/flowModel.js";
+import { parseDslToModel } from "../components/flow/flowModel.js";
 
 import GraphView        from "../components/GraphView.vue";
 import InputsTable      from "../components/InputsTable.vue";
@@ -184,7 +185,7 @@ async function loadExecution() {
             try {
                 const g = await Graphs.get(exec.graph_id);
                 graph.value  = g;
-                parsed.value = adaptModelToGraphView(parseYamlToModel(g.yaml));
+                parsed.value = adaptModelToGraphView(parseDslToModel(g.dsl));
             } catch (e) {
                 // Graph deleted? Synthesize from the per-node summary so the
                 // user still sees something.
@@ -198,7 +199,7 @@ async function loadExecution() {
 
 /** Translate the visual editor's normalized model into the shape GraphView
  *  expects (which is { nodes: [{ name, action }], edges: [{ from, to }] }).
- *  Our `parseYamlToModel` already produces nodes with name/action/etc. and
+ *  Our `parseDslToModel` already produces nodes with name/action/etc. and
  *  edges with from/to, so we can pass it almost directly. */
 function adaptModelToGraphView(model) {
     return {

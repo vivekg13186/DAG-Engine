@@ -3,7 +3,6 @@ import { computed, ref, watch, nextTick, onBeforeUnmount } from "vue";
 import { VueFlow, useVueFlow } from "@vue-flow/core";
 import { Background } from '@vue-flow/background';
 import { Controls } from '@vue-flow/controls';
-import { useGraphsStore } from "../stores/graphs.js";
 import { useLayout } from "./useLayout.js";
 
 const props = defineProps({
@@ -22,10 +21,12 @@ const flowId = `vf-${Math.random().toString(36).slice(2, 9)}`;
 const { fitView } = useVueFlow(flowId);
 const { layout } = useLayout();
 
-const store = useGraphsStore();
-const parsed = computed(() => props.parsed || store.activeGraphTab?.parsed || null);
-const nodeStatus = computed(() => props.nodeStatus || (store.activeExecTab?.nodeStatus || {}));
-const isExec = computed(() => props.mode === "exec");
+// All callers (FlowDesigner via CanvasTab, InstanceViewer) pass `parsed` and
+// `node-status` as explicit props now, so we no longer fall back to a global
+// store — that legacy multi-tab Workspace UI has been removed.
+const parsed     = computed(() => props.parsed || null);
+const nodeStatus = computed(() => props.nodeStatus || {});
+const isExec     = computed(() => props.mode === "exec");
 
 // VueFlow renders these. They're refs (not computeds) so dagre can mutate them
 // in place after measurement.

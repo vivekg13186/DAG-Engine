@@ -26,9 +26,13 @@ router.get("/", async (req, res, next) => {
     }
     params.push(Math.min(parseInt(limit, 10) || 50, 200));
     const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+    // graphs lost its `version` column when the schema flipped to single-row
+    // workflows (migration 008). The Inspector formats the workflow column
+    // from `graph_name` only now; if anything else still expects
+    // `graph_version`, it'll just see undefined.
     const { rows } = await pool.query(
       `SELECT e.id, e.graph_id, e.status, e.started_at, e.finished_at, e.created_at, e.error,
-              g.name AS graph_name, g.version AS graph_version
+              g.name AS graph_name
        FROM executions e
        LEFT JOIN graphs g ON g.id = e.graph_id
        ${whereSql}

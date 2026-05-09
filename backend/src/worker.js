@@ -29,11 +29,11 @@ async function processExecution(job) {
     [executionId],
   );
 
-  const { rows } = await pool.query("SELECT yaml, parsed FROM graphs WHERE id=$1", [graphId]);
+  const { rows } = await pool.query("SELECT dsl, parsed FROM graphs WHERE id=$1", [graphId]);
   if (rows.length === 0) throw new Error("graph not found");
 
-  // Re-validate (in case the YAML was edited between save and run).
-  const parsed = rows[0].parsed || parseDag(rows[0].yaml);
+  // Prefer the parsed-JSONB cache; fall back to re-parsing the dsl text.
+  const parsed = rows[0].parsed || parseDag(rows[0].dsl);
 
   // Pull the user-supplied JSON input that was stashed when the execution row
   // was created. It overlays parsed.data and is exposed as ${data.*} / ${input.*}.
@@ -105,10 +105,27 @@ async function processExecution(job) {
     throw e;
   }
 
+  // Configs are encrypted in `configs.data` at rest, but the engine
+  // injects DECRYPTED values into ctx.config / ctx.env so plugins can
+  // use them. Those branches must NOT make it into executions.context —
+  // anyone with read access to the executions table (or the
+  // InstanceViewer) would otherwise see plaintext SMTP / DB / API
+  // passwords. Strip them before persisting.
+  function redact(ctx) {
+    if (!ctx || typeof ctx !== "object") return ctx;
+    const { config, env, ...rest } = ctx;
+    return rest;
+  }
+
   // For batch runs, persist the per-item summary instead of a single ctx.
   const finalContext = isBatch
-    ? { batch: true, items: result.items }
-    : result.ctx;
+    ? { batch: true, items: (result.items || []).map(it => ({
+        ...it,
+        ctx:    redact(it.ctx),
+        // Some batch implementations bubble up the per-item input under
+        // `input` — that's user-supplied data, leave it alone.
+      })) }
+    : redact(result.ctx);
   await pool.query(
     "UPDATE executions SET status=$2, finished_at=NOW(), context=$3 WHERE id=$1",
     [executionId, result.status, JSON.stringify(finalContext)],

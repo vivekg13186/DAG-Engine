@@ -1,3 +1,25 @@
+// Graphs API — single-row workflows + explicit archive.
+//
+// Versioning was removed in migration 008. The `id` is stable across
+// saves, so URLs like /flowDesigner/<id> stay valid forever. Old saves
+// don't accumulate as new rows; users keep snapshots by hitting the
+// Archive button, which copies the current state into archived_graphs.
+//
+// Endpoints:
+//   GET    /graphs                              list live workflows
+//   GET    /graphs/:id                          full live row
+//   POST   /graphs                              create (refuses duplicate name)
+//   PUT    /graphs/:id                          in-place update (id unchanged)
+//   DELETE /graphs/:id                          soft delete
+//   POST   /graphs/validate                     parse + validate without saving
+//   POST   /graphs/:id/execute                  enqueue an execution
+//
+//   POST   /graphs/:id/archives                 snapshot current state
+//   GET    /graphs/:id/archives                 list archives for this graph
+//   GET    /graphs/:id/archives/:archiveId      one archive (with full dsl)
+//   POST   /graphs/:id/archives/:archiveId/restore
+//                                              overwrite live state from snapshot
+
 import { Router } from "express";
 import { v4 as uuid } from "uuid";
 import { pool, withTx } from "../db/pool.js";
@@ -5,98 +27,104 @@ import { parseDag } from "../dsl/parser.js";
 import { enqueueExecution } from "../queue/queue.js";
 import { NotFoundError, ValidationError } from "../utils/errors.js";
 
+// `dsl` is the canonical body field. Older clients still posting `yaml`
+// keep working — we accept either here and treat the contents as JSON.
+function readDsl(body) {
+  return body?.dsl ?? body?.yaml ?? null;
+}
+
 const router = Router();
 
-/** GET /graphs — list latest version of each non-deleted graph. */
+// ──────────────────────────────────────────────────────────────────────
+// Live workflows
+// ──────────────────────────────────────────────────────────────────────
+
 router.get("/", async (_req, res, next) => {
   try {
     const { rows } = await pool.query(`
-      SELECT DISTINCT ON (name) id, name, version, created_at, updated_at
+      SELECT id, name, created_at, updated_at
       FROM graphs
       WHERE deleted_at IS NULL
-      ORDER BY name, version DESC
+      ORDER BY name
     `);
     res.json(rows);
   } catch (e) { next(e); }
 });
 
-/** GET /graphs/:id — full graph row. */
 router.get("/:id", async (req, res, next) => {
   try {
-    const { rows } = await pool.query("SELECT * FROM graphs WHERE id=$1", [req.params.id]);
+    const { rows } = await pool.query(
+      "SELECT * FROM graphs WHERE id=$1 AND deleted_at IS NULL",
+      [req.params.id],
+    );
     if (rows.length === 0) throw new NotFoundError("graph");
     res.json(rows[0]);
   } catch (e) { next(e); }
 });
 
-/** POST /graphs/validate — parse + validate without saving. */
 router.post("/validate", async (req, res, next) => {
   try {
-    const { yaml } = req.body || {};
-    if (!yaml) throw new ValidationError("yaml field required");
-    const parsed = parseDag(yaml);
+    const dsl = readDsl(req.body);
+    if (!dsl) throw new ValidationError("dsl field required");
+    const parsed = parseDag(dsl);
     res.json({ valid: true, parsed });
   } catch (e) { next(e); }
 });
 
-/** POST /graphs — create a new graph (version 1) or new version of an existing name. */
 router.post("/", async (req, res, next) => {
   try {
-    const { yaml } = req.body || {};
-    if (!yaml) throw new ValidationError("yaml field required");
-    const parsed = parseDag(yaml);
+    const dsl = readDsl(req.body);
+    if (!dsl) throw new ValidationError("dsl field required");
+    const parsed = parseDag(dsl);
 
-    const out = await withTx(async (c) => {
-      const { rows: existing } = await c.query(
-        "SELECT MAX(version) AS v FROM graphs WHERE name=$1",
-        [parsed.name],
+    const id = uuid();
+    try {
+      await pool.query(
+        `INSERT INTO graphs (id, name, dsl, parsed)
+         VALUES ($1,$2,$3,$4)`,
+        [id, parsed.name, dsl, JSON.stringify(parsed)],
       );
-      const nextVersion = (existing[0].v || 0) + 1;
-      const id = uuid();
-      await c.query(
-        `INSERT INTO graphs (id, name, version, yaml, parsed)
-         VALUES ($1,$2,$3,$4,$5)`,
-        [id, parsed.name, nextVersion, yaml, JSON.stringify(parsed)],
-      );
-      return { id, name: parsed.name, version: nextVersion };
-    });
-    res.status(201).json(out);
+    } catch (e) {
+      // Unique-name conflict — the partial unique index added by 008
+      // covers WHERE deleted_at IS NULL, so old soft-deleted names are fine.
+      if (e.code === "23505") {
+        throw new ValidationError(`a workflow named "${parsed.name}" already exists`);
+      }
+      throw e;
+    }
+    res.status(201).json({ id, name: parsed.name });
   } catch (e) { next(e); }
 });
 
-/** PUT /graphs/:id — bumps version (preserves history). */
 router.put("/:id", async (req, res, next) => {
   try {
-    const { yaml } = req.body || {};
-    if (!yaml) throw new ValidationError("yaml field required");
-    const parsed = parseDag(yaml);
+    const dsl = readDsl(req.body);
+    if (!dsl) throw new ValidationError("dsl field required");
+    const parsed = parseDag(dsl);
 
-    const out = await withTx(async (c) => {
-      const { rows: existing } = await c.query(
-        "SELECT name FROM graphs WHERE id=$1", [req.params.id],
+    const { rows: existing } = await pool.query(
+      "SELECT name FROM graphs WHERE id=$1 AND deleted_at IS NULL",
+      [req.params.id],
+    );
+    if (existing.length === 0) throw new NotFoundError("graph");
+    if (existing[0].name !== parsed.name) {
+      throw new ValidationError(
+        `graph name mismatch: existing="${existing[0].name}", dsl="${parsed.name}"`
       );
-      if (existing.length === 0) throw new NotFoundError("graph");
-      const name = existing[0].name;
-      if (name !== parsed.name) {
-        throw new ValidationError(`graph name mismatch: existing="${name}", yaml="${parsed.name}"`);
-      }
-      const { rows: maxV } = await c.query(
-        "SELECT MAX(version) AS v FROM graphs WHERE name=$1", [name],
-      );
-      const nextVersion = (maxV[0].v || 0) + 1;
-      const id = uuid();
-      await c.query(
-        `INSERT INTO graphs (id, name, version, yaml, parsed)
-         VALUES ($1,$2,$3,$4,$5)`,
-        [id, name, nextVersion, yaml, JSON.stringify(parsed)],
-      );
-      return { id, name, version: nextVersion };
-    });
-    res.json(out);
+    }
+
+    await pool.query(
+      `UPDATE graphs
+          SET dsl = $2,
+              parsed = $3,
+              updated_at = NOW()
+        WHERE id = $1`,
+      [req.params.id, dsl, JSON.stringify(parsed)],
+    );
+    res.json({ id: req.params.id, name: parsed.name });
   } catch (e) { next(e); }
 });
 
-/** DELETE /graphs/:id — soft delete this version. */
 router.delete("/:id", async (req, res, next) => {
   try {
     const { rowCount } = await pool.query(
@@ -108,17 +136,103 @@ router.delete("/:id", async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-/** POST /graphs/:id/execute — enqueue an execution. */
+// ──────────────────────────────────────────────────────────────────────
+// Archives
+// ──────────────────────────────────────────────────────────────────────
+
+router.get("/:id/archives", async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, name, archived_at, reason
+         FROM archived_graphs
+        WHERE source_id = $1
+        ORDER BY archived_at DESC
+        LIMIT 200`,
+      [req.params.id],
+    );
+    res.json(rows);
+  } catch (e) { next(e); }
+});
+
+router.get("/:id/archives/:archiveId", async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT *
+         FROM archived_graphs
+        WHERE id = $1 AND source_id = $2`,
+      [req.params.archiveId, req.params.id],
+    );
+    if (rows.length === 0) throw new NotFoundError("archive");
+    res.json(rows[0]);
+  } catch (e) { next(e); }
+});
+
+router.post("/:id/archives", async (req, res, next) => {
+  try {
+    const reason = (req.body?.reason ? String(req.body.reason) : "").slice(0, 200) || null;
+
+    const { rows } = await pool.query(
+      "SELECT name, dsl, parsed FROM graphs WHERE id=$1 AND deleted_at IS NULL",
+      [req.params.id],
+    );
+    if (rows.length === 0) throw new NotFoundError("graph");
+    const g = rows[0];
+
+    const archiveId = uuid();
+    await pool.query(
+      `INSERT INTO archived_graphs (id, source_id, name, dsl, parsed, reason)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [archiveId, req.params.id, g.name, g.dsl, g.parsed, reason],
+    );
+    res.status(201).json({ archiveId });
+  } catch (e) { next(e); }
+});
+
+router.post("/:id/archives/:archiveId/restore", async (req, res, next) => {
+  try {
+    await withTx(async (c) => {
+      const { rows: arch } = await c.query(
+        "SELECT name, dsl, parsed FROM archived_graphs WHERE id=$1 AND source_id=$2",
+        [req.params.archiveId, req.params.id],
+      );
+      if (arch.length === 0) throw new NotFoundError("archive");
+
+      const { rows: live } = await c.query(
+        "SELECT name FROM graphs WHERE id=$1 AND deleted_at IS NULL",
+        [req.params.id],
+      );
+      if (live.length === 0) throw new NotFoundError("graph");
+      if (live[0].name !== arch[0].name) {
+        throw new ValidationError("name mismatch between archive and live graph");
+      }
+
+      await c.query(
+        `UPDATE graphs
+            SET dsl = $2,
+                parsed = $3,
+                updated_at = NOW()
+          WHERE id = $1`,
+        [req.params.id, arch[0].dsl, arch[0].parsed],
+      );
+    });
+    res.json({ ok: true, id: req.params.id });
+  } catch (e) { next(e); }
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// Execution (unchanged)
+// ──────────────────────────────────────────────────────────────────────
+
 router.post("/:id/execute", async (req, res, next) => {
   try {
-    const { rows } = await pool.query("SELECT id FROM graphs WHERE id=$1", [req.params.id]);
+    const { rows } = await pool.query(
+      "SELECT id FROM graphs WHERE id=$1 AND deleted_at IS NULL",
+      [req.params.id],
+    );
     if (rows.length === 0) throw new NotFoundError("graph");
 
     const execId = uuid();
     const userInput = req.body?.context || {};
-    // Store the user-supplied JSON in `inputs` (preserved for the lifetime of
-    // the execution row). `context` will be overwritten with the final engine
-    // ctx when the worker finishes.
     await pool.query(
       `INSERT INTO executions (id, graph_id, status, inputs, context)
        VALUES ($1,$2,'queued',$3,'{}'::jsonb)`,

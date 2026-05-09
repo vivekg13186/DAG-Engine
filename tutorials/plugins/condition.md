@@ -2,54 +2,74 @@
 
 A simple utility plugin used to evaluate a truthy or falsy value and return it as a formal boolean. This is primarily used to store the result of a complex logic check so it can be referenced by multiple downstream nodes using `executeIf`.
 
-## Prerequisites
-* **No External Dependencies:** This is a logic-only plugin and does not require any external servers or software.
-
-## Inputs
-| Name | Description | Sample |
-| :--- | :--- | :--- |
-| `value` | The expression or value to evaluate. | `${data.count > 10}` |
-
-## Outputs
-| Name | Description | Sample |
-| :--- | :--- | :--- |
-| `result` | The boolean result of the evaluation. | `true` |
-
 ## Sample workflow
-```yaml
-name: conditional-branching
-description: |
-  Evaluates a condition once and uses the result to 
-  determine if subsequent steps should run.
-
-data:
-  inventoryCount: 5
-
-nodes:
-  - name: check_stock
-    action: condition
-    inputs:
-      - value: "${data.inventoryCount > 0}"
-    outputs:
-      - result: isAvailable
-
-  - name: process_order
-    action: log
-    executeIf: "${isAvailable}"
-    inputs:
-      - message: "Proceeding with order..."
-
-  - name: notify_out_of_stock
-    action: log
-    executeIf: "${!isAvailable}"
-    inputs:
-      - message: "Item is out of stock."
-
-edges:
-  - from: check_stock
-    to: process_order
-  - from: check_stock
-    to: notify_out_of_stock
+```json
+{
+  "name": "Condition-Test",
+  "meta": {
+    "positions": {
+      "Print-A": {
+        "x": 277,
+        "y": 116
+      },
+      "A_is_big": {
+        "x": 19,
+        "y": 79
+      },
+      "Print-B": {
+        "x": 37,
+        "y": 158
+      },
+      "Print-C": {
+        "x": 104,
+        "y": 215
+      }
+    }
+  },
+  "data": {
+    "a": 1,
+    "b": 2,
+    "c": 1
+  },
+  "nodes": [
+    {
+      "name": "Print-A",
+      "action": "log",
+      "inputs": {
+        "message": "A is big"
+      }
+    },
+    {
+      "name": "A_is_big",
+      "action": "condition",
+      "description": "Returns a boolean — handy to gate downstream nodes via executeIf.",
+      "executeIf": "${a>b}"
+    },
+    {
+      "name": "Print-B",
+      "action": "log",
+      "description": "Logs a message and returns it as output.message.",
+      "inputs": {
+        "message": "B is big"
+      }
+    },
+    {
+      "name": "Print-C",
+      "action": "log",
+      "description": "Logs a message and returns it as output.message.",
+      "inputs": {
+        "message": ""
+      },
+      "executeIf": "${c>b}"
+    }
+  ],
+  "edges": [
+    {
+      "from": "A_is_big",
+      "to": "Print-A"
+    }
+  ]
+}
 ```
 
 ## Expected output

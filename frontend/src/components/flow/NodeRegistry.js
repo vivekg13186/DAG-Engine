@@ -52,7 +52,12 @@ function makeDefaultNode(plugin) {
     data: {
       action:      plugin.name,
       name:        safeName,
-      description: plugin.description || "",
+      // Per-node description is the user's space to leave a note about
+      // *this* node — leave it empty by default. We deliberately don't
+      // pre-fill the plugin's `.description` (developer doc string),
+      // which would otherwise get persisted on every node and make the
+      // DSL noisy.
+      description: "",
       inputs:      defaultsFromSchema(plugin.inputSchema),
       outputs:     {},
       executeIf:   "",

@@ -32,6 +32,13 @@ export async function executeDag(parsed, opts = {}) {
   const { adj, indegree, byName, roots } = buildDag(parsed);
   const remaining = new Map(indegree);                 // mutable copy
 
+  // Reverse adjacency list — each node → its direct parents. Built once at
+  // start so the runtime skip-cascade check below is O(1) per parent.
+  const parents = new Map([...byName.keys()].map(n => [n, []]));
+  for (const e of parsed.edges || []) {
+    if (parents.has(e.to)) parents.get(e.to).push(e.from);
+  }
+
   // Slim context:
   //   - parsed.data fields and user input are merged flat at the root, so
   //     expressions like ${url} resolve directly.
@@ -81,6 +88,25 @@ export async function executeDag(parsed, opts = {}) {
   }
 
   async function runOne(node) {
+    // 0. Skip-cascade. If any parent ended up SKIPPED, this node inherits
+    //    that status — that's the "all_success" semantic familiar from
+    //    Airflow / Prefect: a gated branch upstream short-circuits the
+    //    whole subtree.
+    //
+    //    We only cascade for SKIPPED parents. A FAILED parent under
+    //    onError=continue is a deliberate "keep going" signal from the
+    //    user, so its downstream still runs. (FAILED with onError=terminate
+    //    aborts the run elsewhere; skipRest() handles those.)
+    const skippedParent = (parents.get(node.name) || []).find(
+      p => nodeResults[p]?.status === NodeStatus.SKIPPED
+    );
+    if (skippedParent) {
+      const reason = `upstream "${skippedParent}" was skipped`;
+      recordOutcome(node.name, { status: NodeStatus.SKIPPED, reason });
+      emit("node:status", { node: node.name, status: NodeStatus.SKIPPED, reason });
+      return;
+    }
+
     // 1. Resolve `executeIf`.
     if (node.executeIf) {
       let cond = false;

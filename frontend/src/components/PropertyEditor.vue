@@ -230,7 +230,7 @@
 </template>
 
 <script setup>
-import { ref, watch } from "vue";
+import { ref, reactive, watch } from "vue";
 
 const props = defineProps({
   schema:     { type: Array,  required: true },
@@ -247,15 +247,21 @@ const formRef = ref();
 // through emit("update:modelValue") and the parent re-uses our reference.
 const draft = ref(deepClone(props.modelValue));
 
+// Shadow store of key/value rows for ui_type === "keyvalues". Vue can't
+// v-model an object's keys directly, so we mirror them into arrays of
+// { _k, k, v } rows and sync back on every edit. Must be reactive() so
+// `addKvRow` / `removeKvRow` push/splice trigger re-renders — using a
+// plain Map here meant the "+ add" button did nothing visible.
+const kvShadow = reactive({});  // { [bindPath]: [{ _k, k, v }] }
+
 watch(() => props.modelValue, (next) => {
   if (next === draft.value) return;          // we were the source of the change
   draft.value = deepClone(next);
+  // The new draft has its own outputs/keyvalues — drop any stale rows
+  // from the previously-selected node so we rebuild from scratch on the
+  // next render pass.
+  for (const k of Object.keys(kvShadow)) delete kvShadow[k];
 });
-
-// Shadow array of key/value rows for ui_type === "keyvalues" — Vue can't
-// v-model an object's keys directly, so we mirror them into [{k,v,_k}]
-// rows and sync back on every edit.
-const kvShadow = new Map();   // bindPath -> [{ _k, k, v }]
 
 // ── Helpers --------------------------------------------------------------
 function deepClone(v) {
@@ -285,7 +291,14 @@ function get(bind)        { return getPath(draft.value, bind); }
 function set(bind, value) { setPath(draft.value, bind, value); emitDraft(); }
 
 function emitDraft() {
-  emit("update:modelValue", deepClone(draft.value));
+  // Emit the SAME reference, not a deep clone. The watcher above bails out
+  // when `props.modelValue === draft.value`, which keeps the kv shadow
+  // intact between keystrokes — re-seeding it would generate fresh `_k`
+  // values per row and Vue would destroy & re-create every <q-input>,
+  // costing the user their focus on every character they type.
+  // The parent (PluginPropertyPanel) already snapshots the value when it
+  // forwards the change to the canvas, so a shared reference here is safe.
+  emit("update:modelValue", draft.value);
 }
 
 // Coerce a string value into the schema's expected type (mainly for
@@ -328,25 +341,30 @@ function removeListItem(bind, i)   { ensureList(bind).splice(i, 1); emitDraft();
 
 // ── Key/value helpers ───────────────────────────────────────────────────
 function kvRows(bind) {
-  if (!kvShadow.has(bind)) {
+  // Lazy-seed from the bound object on first access.
+  if (!kvShadow[bind]) {
     const obj = getPath(draft.value, bind) || {};
-    kvShadow.set(bind, Object.entries(obj).map(([k, v]) => ({
+    kvShadow[bind] = Object.entries(obj).map(([k, v]) => ({
       _k: `_${k}_${Math.random().toString(16).slice(2, 6)}`, k, v,
-    })));
+    }));
   }
-  return kvShadow.get(bind);
+  return kvShadow[bind];
 }
 function addKvRow(bind) {
-  kvRows(bind).push({ _k: `_${Date.now()}_${Math.random().toString(16).slice(2, 4)}`, k: "", v: "" });
-  // Don't sync yet — empty key would be filtered out anyway.
+  // Pushing into a reactive array triggers v-for to re-render. Don't sync
+  // yet — an empty key would be filtered out at the next syncKv() anyway.
+  kvRows(bind).push({
+    _k: `_${Date.now()}_${Math.random().toString(16).slice(2, 4)}`,
+    k:  "",
+    v:  "",
+  });
 }
 function removeKvRow(bind, _k) {
-  const rows = kvRows(bind).filter(r => r._k !== _k);
-  kvShadow.set(bind, rows);
+  kvShadow[bind] = (kvShadow[bind] || []).filter(r => r._k !== _k);
   syncKv(bind);
 }
 function syncKv(bind) {
-  const rows = kvRows(bind);
+  const rows = kvShadow[bind] || [];
   const out = {};
   for (const r of rows) {
     if (!r.k) continue;

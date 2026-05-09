@@ -2,8 +2,9 @@
   Prompt → AI generate workflow.
   - Markdown textarea where the user describes what they want.
   - Calls /ai/chat (system prompt already includes the live plugin list + DSL ref).
-  - Extracts the first ```yaml code block from the response and replaces the
-    parent flow model. The prompt itself is stored on model.meta.prompt.
+  - Extracts the first ```json code block from the response (legacy ```yaml
+    blocks are still accepted) and replaces the parent flow model. The
+    prompt itself is stored on model.meta.prompt.
 -->
 <template>
   <div class="column q-gutter-md q-pa-md">
@@ -15,7 +16,7 @@
     <q-input
       v-model="promptText"
       type="textarea"
-      dense filled autogrow
+      dense outlined autogrow
       label="Prompt (markdown)"
       input-style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; min-height: 220px;"
       :disable="generating"
@@ -59,7 +60,7 @@
 import { ref, computed, watch } from "vue";
 import { useQuasar } from "quasar";
 import { AI } from "../../api/client";
-import { parseYamlToModel } from "./flowModel.js";
+import { parseDslToModel } from "./flowModel.js";
 
 const props = defineProps({
   modelValue: { type: Object, required: true },          // the flow model
@@ -88,17 +89,17 @@ async function onGenerate() {
   generating.value = true;
   try {
     const { message } = await AI.chat([
-      { role: "user", content: promptText.value.trim() + "\n\nRespond with the complete workflow YAML in a ```yaml code block." },
+      { role: "user", content: promptText.value.trim() + "\n\nRespond with the complete workflow JSON in a ```json code block." },
     ]);
     rawResponse.value = message?.content || "";
 
-    const yamlBlock = extractYaml(rawResponse.value);
-    if (!yamlBlock) {
-      error.value = "No ```yaml block found in the AI response.";
+    const block = extractDslBlock(rawResponse.value);
+    if (!block) {
+      error.value = "No ```json block found in the AI response.";
       return;
     }
 
-    const newModel = parseYamlToModel(yamlBlock);
+    const newModel = parseDslToModel(block);
     // Preserve the user's prompt under meta.
     newModel.meta = { ...(newModel.meta || {}), prompt: promptText.value };
     emit("update:modelValue", newModel);
@@ -110,8 +111,11 @@ async function onGenerate() {
   }
 }
 
-function extractYaml(text) {
-  const m = /```(?:yaml|yml)?\s*\n([\s\S]*?)```/i.exec(text);
+// Pull the first fenced code block out of the AI's reply. We accept both
+// ```json (the new convention) and ```yaml/```yml (legacy responses from
+// older prompts) so prompts that haven't fully migrated still load.
+function extractDslBlock(text) {
+  const m = /```(?:json|yaml|yml)?\s*\n([\s\S]*?)```/i.exec(text);
   return m ? m[1] : null;
 }
 

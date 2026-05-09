@@ -85,17 +85,32 @@
             <q-card-section class="q-pa-sm">
               <div class="text-caption text-grey q-mb-sm">{{ typeDef.label }}</div>
               <div v-for="f in typeDef.fields" :key="f.name" class="q-mb-xs">
-                <!-- secret string -->
+                <!-- secret string — never echoes the existing value back.
+                     The API masks secrets as "***" in GET responses; we
+                     also strip those on load so the field is empty by
+                     default. Leaving it empty on save = "keep existing
+                     ciphertext" (the backend's update path preserves it). -->
                 <q-input
                   v-if="f.secret"
-                  :model-value="form.data[f.name]"
+                  :model-value="secretInputValue(f.name)"
                   @update:model-value="setField(f.name, $event)"
                   dense outlined
-                  type="password"
+                  :type="passwordVisible[f.name] ? 'text' : 'password'"
                   :label="`${f.name}${f.required ? ' *' : ''}`"
                   :hint="f.description"
                   :placeholder="isNew ? '' : 'Leave blank to keep existing secret'"
-                />
+                  autocomplete="new-password"
+                >
+                  <template v-slot:append>
+                    <q-icon
+                      :name="passwordVisible[f.name] ? 'visibility_off' : 'visibility'"
+                      class="cursor-pointer"
+                      @click="passwordVisible[f.name] = !passwordVisible[f.name]"
+                    >
+                      <q-tooltip>{{ passwordVisible[f.name] ? "Hide" : "Show" }}</q-tooltip>
+                    </q-icon>
+                  </template>
+                </q-input>
                 <!-- enum -->
                 <q-select
                   v-else-if="f.type === 'select'"
@@ -188,7 +203,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from "vue";
+import { ref, reactive, computed, watch, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useQuasar } from "quasar";
 import { Configs } from "../api/client";
@@ -219,6 +234,24 @@ const form = ref({
   description: "",
   data: {},
 });
+
+// Per-secret-field visibility toggle (eye icon next to the password input).
+// Keyed by the schema field name; resets when the user picks a different
+// type or loads a different config.
+const passwordVisible = reactive({});
+
+/**
+ * What we hand to the password input's :model-value. The API returns
+ * "***" for secret fields in GET responses; we never want that string to
+ * appear in the field, otherwise the user thinks "***" IS the password.
+ * If the underlying value is the mask sentinel we render an empty input
+ * — the placeholder ("Leave blank to keep existing secret") explains
+ * what an empty field will do on save.
+ */
+function secretInputValue(name) {
+  const v = form.value.data?.[name];
+  return v === "***" ? "" : (v ?? "");
+}
 const loading   = ref(true);
 const saving    = ref(false);
 const loadError = ref("");
@@ -270,6 +303,8 @@ watch(() => form.value.type, (newType, oldType) => {
   if (newType === "generic") {
     genericRows.value = [];
   }
+  // Each type has its own set of secret fields; reset visibility.
+  for (const k of Object.keys(passwordVisible)) delete passwordVisible[k];
 });
 
 // ── Dirty tracking ─────────────────────────────────────────────────────────

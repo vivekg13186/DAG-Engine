@@ -16,33 +16,46 @@ A simple utility plugin that pauses the workflow execution for a specified durat
 | `slept` | The actual amount of time paused in milliseconds. | `5000` |
 
 ## Sample workflow
-```yaml
-name: rate-limited-fetch
-description: |
-  Fetches data from an API, waits for 2 seconds to respect 
-  rate limits, and then performs a second fetch.
-
-nodes:
-  - name: first_call
-    action: http.request
-    inputs:
-      - url: "https://api.example.com/data/1"
-
-  - name: wait_step
-    action: delay
-    inputs:
-      - ms: 2000
-
-  - name: second_call
-    action: http.request
-    inputs:
-      - url: "https://api.example.com/data/2"
-
-edges:
-  - from: first_call
-    to: wait_step
-  - from: wait_step
-    to: second_call
+```json
+{
+  "name": "Delay Test",
+  "description": "Wait for 2 mins and print message Hi",
+  "meta": {
+    "positions": {
+      "Print-After-2min": {
+        "x": 282,
+        "y": 147
+      },
+      "delay": {
+        "x": 74,
+        "y": 106
+      }
+    }
+  },
+  "nodes": [
+    {
+      "name": "Print-After-2min",
+      "action": "log",
+      "inputs": {
+        "message": "Hi"
+      }
+    },
+    {
+      "name": "delay",
+      "action": "delay",
+      "description": "Sleeps for `ms` milliseconds.",
+      "inputs": {
+        "ms": 120000
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "delay",
+      "to": "Print-After-2min"
+    }
+  ]
+}
 ```
 
 ## Expected output

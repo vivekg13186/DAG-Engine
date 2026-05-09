@@ -1,23 +1,38 @@
-import yaml from "js-yaml";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
 import { dagSchema } from "./schema.js";
 import { ValidationError } from "../utils/errors.js";
+import { registry } from "../plugins/registry.js";
 
 const ajv = new Ajv({ allErrors: true, useDefaults: true, strict: false });
 addFormats(ajv);
 const validateSchema = ajv.compile(dagSchema);
 
 /**
- * Parse + validate a YAML DAG.
- * Returns the parsed object, or throws a ValidationError listing every issue.
+ * Parse + validate a JSON DAG.
+ *
+ * The DSL is now JSON. Earlier revisions of this engine accepted YAML; the
+ * on-disk + on-the-wire format has switched to JSON so the same blob the
+ * frontend pretty-prints is what the engine and the API consume.
+ *
+ * Accepts either:
+ *   - a JSON string (calls JSON.parse), or
+ *   - an already-parsed object (used by the worker which can read straight
+ *     from `graphs.parsed` JSONB and skip the round-trip).
+ *
+ * Returns the validated object, or throws a ValidationError listing every
+ * issue.
  */
-export function parseDag(yamlText) {
+export function parseDag(input) {
   let parsed;
-  try {
-    parsed = yaml.load(yamlText);
-  } catch (e) {
-    throw new ValidationError("Invalid YAML", [{ path: "", message: e.message }]);
+  if (typeof input === "string") {
+    try {
+      parsed = JSON.parse(input);
+    } catch (e) {
+      throw new ValidationError("Invalid JSON", [{ path: "", message: e.message }]);
+    }
+  } else {
+    parsed = input;
   }
   if (!parsed || typeof parsed !== "object") {
     throw new ValidationError("DAG must be an object");
@@ -60,6 +75,42 @@ export function parseDag(yamlText) {
     }
     if (e.from === e.to) {
       throw new ValidationError(`Self-loop on node "${e.from}" is not allowed`);
+    }
+  }
+
+  // Per-node plugin-input validation.
+  //
+  // The DAG schema above only validates structure. Each plugin's own
+  // inputSchema is enforced at runtime when registry.invoke() runs, but
+  // by then the user has already saved a half-finished flow that will
+  // simply break on Run. Catch the most common failure modes — missing
+  // required inputs, action that doesn't exist — at save time.
+  //
+  // We deliberately don't run the full Ajv pass here: input values may
+  // contain `${…}` placeholders that defeat strict type checks (e.g.
+  // an integer field bound to "${count}"). Required-presence is the
+  // useful subset that doesn't false-positive on templated values.
+  //
+  // The plugin registry might be empty (e.g. inside tests that skip
+  // loadBuiltins). In that case we silently skip — the engine will
+  // still surface a clear error at run-time.
+  for (const n of parsed.nodes) {
+    let plugin = null;
+    try { plugin = registry.get(n.action); }
+    catch { continue; }                  // unknown action → tolerate, fail at run-time
+
+    const required = plugin.inputSchema?.required || [];
+    for (const key of required) {
+      const v = n.inputs?.[key];
+      if (v === undefined || v === null || v === "") {
+        throw new ValidationError(
+          `node "${n.name}" missing required input "${key}"`,
+          [{
+            path: `nodes.${n.name}.inputs.${key}`,
+            message: `required for action "${n.action}"`,
+          }],
+        );
+      }
     }
   }
 

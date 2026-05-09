@@ -2,14 +2,28 @@ import axios from "axios";
 
 const api = axios.create({ baseURL: "/api" });
 
+// `dsl` is the JSON-serialised DAG (formerly YAML). The backend keeps a
+// `yaml` alias on its request handlers for back-compat, but new clients
+// should always use `dsl`.
+//
+// Workflows are now single-row — the `id` is stable across saves and
+// PUT updates the same row in place. Snapshots are explicit via the
+// archive endpoints below.
 export const Graphs = {
   list:     () => api.get("/graphs").then(r => r.data),
   get:      (id) => api.get(`/graphs/${id}`).then(r => r.data),
-  create:   (yaml) => api.post("/graphs", { yaml }).then(r => r.data),
-  update:   (id, yaml) => api.put(`/graphs/${id}`, { yaml }).then(r => r.data),
-  remove:   (id) => api.delete(`/graphs/${id}`),
-  validate: (yaml) => api.post("/graphs/validate", { yaml }).then(r => r.data),
+  create:   (dsl) => api.post("/graphs", { dsl }).then(r => r.data),
+  update:   (id, dsl) => api.put(`/graphs/${id}`, { dsl }).then(r => r.data),
+  remove:   (id) => api.delete(`/graphs/${id}`).then(r => r.data),
+  validate: (dsl) => api.post("/graphs/validate", { dsl }).then(r => r.data),
   execute:  (id, context = {}) => api.post(`/graphs/${id}/execute`, { context }).then(r => r.data),
+
+  // Archives — explicit snapshots of the live workflow.
+  archive:    (id, reason) => api.post(`/graphs/${id}/archives`, { reason }).then(r => r.data),
+  archives:   (id) => api.get(`/graphs/${id}/archives`).then(r => r.data),
+  archiveGet: (id, archiveId) => api.get(`/graphs/${id}/archives/${archiveId}`).then(r => r.data),
+  restore:    (id, archiveId) =>
+    api.post(`/graphs/${id}/archives/${archiveId}/restore`).then(r => r.data),
 };
 
 export const Executions = {

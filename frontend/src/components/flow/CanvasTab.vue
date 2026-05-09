@@ -124,6 +124,32 @@ const edges = ref([]);
 // into the parent's model).
 const { addNodes, addEdges, updateNode, onConnect } = useVueFlow();
 
+// VueFlow handles keyboard delete (Backspace / Delete) internally and
+// mutates our v-model'd `nodes` / `edges` refs directly. The
+// `useVueFlow().onNodesChange` callback is unreliable in v-model mode,
+// so instead we watch array *lengths* — any time they shrink, we know
+// something was removed (button click, keyboard, drag-delete, programmatic)
+// and we flush the canvas state to the parent model immediately.
+//
+// Length-grow is already handled by the explicit extractAndEmit() calls
+// in onAddPlugin / onConnect, so we only react to shrink here.
+let lastNodeCount = nodes.value.length;
+let lastEdgeCount = edges.value.length;
+watch(() => nodes.value.length, (next) => {
+  if (next < lastNodeCount) {
+    // A node disappeared — clear selection in case it was the gone one.
+    if (selectedNodeId.value && !nodes.value.some(n => n.id === selectedNodeId.value)) {
+      selectedNodeId.value = null;
+    }
+    extractAndEmit();
+  }
+  lastNodeCount = next;
+});
+watch(() => edges.value.length, (next) => {
+  if (next < lastEdgeCount) extractAndEmit();
+  lastEdgeCount = next;
+});
+
 // Auto-add edges when the user drags a connection between two handles.
 onConnect((connection) => {
   // Avoid duplicates.
@@ -134,7 +160,9 @@ onConnect((connection) => {
     source: connection.source,
     target: connection.target,
   }]);
-  scheduleExtract();
+  // Structural change → emit synchronously so a quick Save right after
+  // wiring a connection never races the 200ms debounce.
+  extractAndEmit();
 });
 
 // ── Node registry ───────────────────────────────────────────────────────────
@@ -169,10 +197,13 @@ function onAddPlugin(plugin) {
   addNodes([node]);
   selectedNodeId.value = node.id;
   rightOpen.value = true;
-  scheduleExtract();
+  // Structural change — flush immediately so a quick Save right after
+  // dropping a node doesn't race the debounce window.
+  extractAndEmit();
 }
 
 // ── Property panel updates → updateNode ─────────────────────────────────────
+// Property edits fire per-keystroke from the right pane; debounce them.
 function onUpdateNodeData(newData) {
   if (!selectedNode.value) return;
   updateNode(selectedNode.value.id, { data: { ...selectedNode.value.data, ...newData } });
@@ -185,7 +216,10 @@ function onDeleteSelected() {
   nodes.value = nodes.value.filter(n => n.id !== id);
   edges.value = edges.value.filter(e => e.source !== id && e.target !== id);
   selectedNodeId.value = null;
-  scheduleExtract();
+  // Structural change — flush immediately. The previous debounced
+  // extract meant a fast user click on Save (within 200ms) saved the
+  // stale model with the just-deleted node still present.
+  extractAndEmit();
 }
 
 // ── Sync model → canvas ────────────────────────────────────────────────────
@@ -234,6 +268,11 @@ function applyModel(model) {
   nodes.value = newNodes;
   edges.value = newEdges;
   selectedNodeId.value = null;
+  // Reset the shrink-detection baselines so applyModel (which can lower
+  // the counts when re-loading a smaller flow) doesn't trip a phantom
+  // extract once `suspendExtract` clears.
+  lastNodeCount = newNodes.length;
+  lastEdgeCount = newEdges.length;
   // Release after the canvas processes the new arrays.
   nextTick().then(() => { suspendExtract = false; });
 }
@@ -250,6 +289,10 @@ function scheduleExtract() {
 }
 
 function extractAndEmit() {
+  if (suspendExtract) return;
+  // Cancel any pending debounce — we're emitting now.
+  if (extractTimer) { clearTimeout(extractTimer); extractTimer = null; }
+
   // Build the canvas-side patch of model.
   const idToName = new Map();
   const positions = {};

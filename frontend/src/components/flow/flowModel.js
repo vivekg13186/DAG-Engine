@@ -1,28 +1,26 @@
-// Shared model + (de)serialization for the redesigned FlowDesigner.
+// Shared model + (de)serialization for the FlowDesigner.
 //
 // The visual editor works on a normalized in-memory model:
 //
 //   {
 //     name, description,
-//     data:   { ... },                    // top-level constants
+//     data:   { ... },                                 // top-level constants
 //     meta: {
-//       prompt:    "...",                 // AI generation prompt
-//       positions: { <nodeName>: { x, y } },                 // canvas layout
+//       prompt:    "...",                              // AI generation prompt
+//       positions: { <nodeName>: { x, y } },           // canvas layout
 //     },
 //     nodes: [{ name, action, description, inputs, outputs,
 //                executeIf, retry, retryDelay, onError, batchOver }],
 //     edges: [{ from, to }],
 //   }
 //
-// `version` is intentionally NOT part of the authored model — it is managed
-// server-side (auto-incremented per save). Legacy YAML that carries a
-// `version` key is parsed without error but the value is dropped on
-// re-serialization, so saved YAML never contains it.
+// The on-disk + on-the-wire format is **JSON**. (Earlier revisions stored
+// YAML; that format is gone end-to-end.)
 //
-// Node `inputs` / `outputs` are stored as objects internally and serialized
-// back to the array form on output (matches the spec authoring style).
-
-import yaml from "js-yaml";
+// `version` is intentionally NOT part of the authored model — it is managed
+// server-side (auto-incremented per save). Legacy files that carry a
+// `version` key are accepted on parse but the value is dropped on
+// re-serialization, so saved JSON never contains it.
 
 export function emptyModel(name = "new-flow") {
   return {
@@ -48,11 +46,29 @@ export function emptyModel(name = "new-flow") {
   };
 }
 
-/** Parse YAML string → normalized model. Throws on yaml errors. */
-export function parseYamlToModel(text) {
-  const parsed = yaml.load(text || "") || {};
-  return normalize(parsed);
+/**
+ * Parse a DSL string into the normalized model.
+ *
+ * Accepts:
+ *   - JSON text (preferred)
+ *   - an empty string  → empty model
+ *
+ * Throws on malformed JSON.
+ */
+export function parseDslToModel(text) {
+  if (text == null || text === "") return normalize({});
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (e) {
+    throw new Error(`Invalid JSON: ${e.message}`);
+  }
+  return normalize(parsed || {});
 }
+
+// Backwards-compatible alias for the old callsites that still import the
+// YAML-named function. New code should call parseDslToModel().
+export const parseYamlToModel = parseDslToModel;
 
 /** Take any (parsed or raw) shape and produce the normalized in-memory model. */
 export function normalize(parsed) {
@@ -95,17 +111,19 @@ function kvFromAny(value) {
   return { ...value };
 }
 
-/** Serialize the normalized model back to a YAML string. */
-export function serializeModelToYaml(model) {
-  // Build a clean object — drop empty-meta sections to keep YAML readable.
-  // Note: `version` is intentionally not emitted. The server tracks versions
-  // automatically; we don't want it round-tripping through user-visible YAML.
+/**
+ * Serialize the normalized model to JSON.
+ *
+ * Empty / default fields are pruned so the output stays compact and human-
+ * readable. The `inputs` / `outputs` maps are emitted as plain objects
+ * (the engine accepts both forms but objects are the natural JSON shape).
+ */
+export function serializeModelToDsl(model) {
   const out = { name: model.name };
   if (model.description) out.description = model.description;
 
-  // Flatten meta — drop sub-keys that have no content.
   const meta = {};
-  if (model.meta?.prompt)  meta.prompt = model.meta.prompt;
+  if (model.meta?.prompt) meta.prompt = model.meta.prompt;
   if (model.meta?.positions && Object.keys(model.meta.positions).length) {
     meta.positions = model.meta.positions;
   }
@@ -116,21 +134,22 @@ export function serializeModelToYaml(model) {
   out.nodes = (model.nodes || []).map(serializeNode);
   if (model.edges?.length) out.edges = model.edges.map(e => ({ from: e.from, to: e.to }));
 
-  return yaml.dump(out, { lineWidth: 100, noRefs: true });
+  return JSON.stringify(out, null, 2);
 }
+
+// Backwards-compatible alias for the old callsites.
+export const serializeModelToYaml = serializeModelToDsl;
 
 function serializeNode(n) {
   const out = { name: n.name, action: n.action };
-  if (n.description) out.description = n.description;
-  if (n.inputs && Object.keys(n.inputs).length)
-    out.inputs = Object.entries(n.inputs).map(([k, v]) => ({ [k]: v }));
-  if (n.outputs && Object.keys(n.outputs).length)
-    out.outputs = Object.entries(n.outputs).map(([k, v]) => ({ [k]: v }));
-  if (n.executeIf)               out.executeIf  = n.executeIf;
-  if (n.retry)                   out.retry      = n.retry;
-  if (n.retryDelay)              out.retryDelay = n.retryDelay;
+  if (n.description)     out.description = n.description;
+  if (n.inputs  && Object.keys(n.inputs).length)  out.inputs  = { ...n.inputs };
+  if (n.outputs && Object.keys(n.outputs).length) out.outputs = { ...n.outputs };
+  if (n.executeIf)              out.executeIf  = n.executeIf;
+  if (n.retry)                  out.retry      = n.retry;
+  if (n.retryDelay)             out.retryDelay = n.retryDelay;
   if (n.onError && n.onError !== "terminate") out.onError = n.onError;
-  if (n.batchOver)               out.batchOver  = n.batchOver;
+  if (n.batchOver)              out.batchOver  = n.batchOver;
   return out;
 }
 
@@ -147,7 +166,7 @@ export function uniqueNodeName(model, prefix) {
 }
 
 /** Trigger a browser download of `text` as `filename`. */
-export function downloadText(filename, text, mime = "text/yaml") {
+export function downloadText(filename, text, mime = "application/json") {
   const blob = new Blob([text], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -160,7 +179,7 @@ export function downloadText(filename, text, mime = "text/yaml") {
 }
 
 /** Read a single user-selected file as text. Returns a Promise<string>. */
-export function pickFileAsText(accept = ".yaml,.yml,.txt") {
+export function pickFileAsText(accept = ".json,.txt") {
   return new Promise((resolve, reject) => {
     const input = document.createElement("input");
     input.type = "file";

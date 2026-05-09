@@ -1,4 +1,4 @@
-import { getTransport, defaultFrom } from "../email/util.js";
+import { getTransport } from "../email/util.js";
 
 // String-or-array-of-strings — used for to / cc / bcc.
 const stringList = {
@@ -10,15 +10,29 @@ const stringList = {
 
 export default {
   name: "email.send",
-  description: "Send an email via SMTP. Defaults to the SMTP_* env vars; pass `smtp: { host, port, secure, user, pass }` per-call to override. Set SMTP_HOST=json (or pass smtp.host=json) for a dry-run that doesn't actually send.",
+  description:
+    "Send an email via SMTP. The `config` input names a stored configuration " +
+    "(type mail.smtp) which provides the host, port, credentials, and default " +
+    "From address. Manage configs from the Home page → Configurations table.",
+
   inputSchema: {
     type: "object",
-    required: ["subject"],
+    required: ["config", "subject"],
     properties: {
+      // Name of a stored mail.smtp config (Home page → Configurations).
+      // The engine pre-loads every config into ctx.config.<name>.<field>
+      // before each execution, so we look it up by name from there.
+      config: {
+        type: "string",
+        minLength: 1,
+        description:
+          "Name of a stored configuration of type mail.smtp. " +
+          "Resolved from ctx.config.<name> at run-time.",
+      },
       to:        stringList,
       cc:        stringList,
       bcc:       stringList,
-      from:      { type: "string" },
+      from:      { type: "string", description: "Overrides the config's `from` field if set." },
       replyTo:   { type: "string" },
       subject:   { type: "string", minLength: 1 },
       text:      { type: "string" },
@@ -28,7 +42,6 @@ export default {
         type: "array",
         items: {
           type: "object",
-          // Either inline `content` (string or base64) or a `path` to a local file.
           properties: {
             filename:    { type: "string" },
             content:     { type: "string" },
@@ -39,19 +52,9 @@ export default {
           },
         },
       },
-      // Per-call SMTP override.
-      smtp: {
-        type: "object",
-        properties: {
-          host:   { type: "string" },
-          port:   { type: "integer", minimum: 1, maximum: 65535 },
-          secure: { type: "boolean" },
-          user:   { type: "string" },
-          pass:   { type: "string" },
-        },
-      },
     },
   },
+
   outputSchema: {
     type: "object",
     required: ["messageId"],
@@ -67,19 +70,48 @@ export default {
     },
   },
 
-  async execute(input) {
+  async execute(input, ctx) {
     if (!input.to && !input.cc && !input.bcc) {
       throw new Error("email.send requires at least one of: to, cc, bcc");
     }
     if (!input.text && !input.html) {
       throw new Error("email.send requires either `text` or `html`");
     }
-    const from = input.from || (input.smtp?.user) || defaultFrom();
-    if (!from) {
-      throw new Error("email.send: no `from` address (set SMTP_FROM or pass input.from)");
+
+    // Resolve the named config from the live runtime context.
+    // `ctx.config` is populated by worker.js at execution start (see
+    // configs/loader.js) and contains every saved config keyed by name.
+    const cfg = ctx?.config?.[input.config];
+    if (!cfg || typeof cfg !== "object") {
+      throw new Error(
+        `email.send: config "${input.config}" not found. ` +
+        `Create a configuration of type mail.smtp on the Home page → Configurations.`,
+      );
     }
 
-    const transport = getTransport(input.smtp);
+    // The mail.smtp config schema uses `username`/`password`; the transport
+    // helper expects `user`/`pass`. Map across so users don't have to know.
+    const transportOpts = {
+      host:   cfg.host,
+      port:   cfg.port,
+      secure: cfg.secure,
+      user:   cfg.username,
+      pass:   cfg.password,
+    };
+    if (!transportOpts.host) {
+      throw new Error(
+        `email.send: config "${input.config}" has no host set.`,
+      );
+    }
+
+    const from = input.from || cfg.from || cfg.username;
+    if (!from) {
+      throw new Error(
+        `email.send: no from address — set "from" on the config or pass it on the node input.`,
+      );
+    }
+
+    const transport = getTransport(transportOpts);
     const message = {
       from,
       to:          input.to,

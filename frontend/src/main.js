@@ -1,5 +1,4 @@
 import { createApp } from "vue";
-import { createPinia } from "pinia";
 import { Quasar, Notify, Dialog } from "quasar";
 
 import "@quasar/extras/material-icons/material-icons.css";
@@ -17,7 +16,6 @@ import {router} from "./routes";
 import App from "./App.vue";
 const routes = createApp(App)
   .use(router)
-  .use(createPinia())
   .use(Quasar, {
     plugins: { Notify, Dialog },
     // Light theme is the only theme. Brand colors mirror the CSS tokens in

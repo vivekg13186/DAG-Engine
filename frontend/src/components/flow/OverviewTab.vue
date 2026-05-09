@@ -11,13 +11,13 @@
     <q-input
       :model-value="model.name"
       @update:model-value="set('name', $event)"
-      dense filled label="Name" autofocus
+      dense outlined label="Name" autofocus
     />
 
     <q-input
       :model-value="model.description"
       @update:model-value="set('description', $event)"
-      dense filled type="textarea" autogrow
+      dense outlined type="textarea" autogrow
       label="Description (markdown)"
       input-style="min-height: 100px;"
     />
@@ -27,7 +27,7 @@
       <div class="text-caption text-grey q-mb-xs">data — global constants merged into the runtime context root</div>
       <q-input
         v-model="dataText"
-        dense filled type="textarea" autogrow
+        dense outlined type="textarea" autogrow
         :error="!dataParsed.ok"
         :error-message="dataParsed.ok ? '' : dataParsed.error"
         input-style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12.5px; min-height: 80px;"
