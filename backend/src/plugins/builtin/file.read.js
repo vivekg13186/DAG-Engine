@@ -12,6 +12,9 @@ export default {
       encoding: { type: "string", enum: ["utf8", "utf-8", "ascii", "latin1", "base64"], default: "utf8" },
     },
   },
+  // What ctx[outputVar] receives when the node-level outputVar is set.
+  primaryOutput: "content",
+
   outputSchema: {
     type: "object",
     required: ["content", "size", "path"],

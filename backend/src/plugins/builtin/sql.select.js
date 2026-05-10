@@ -17,6 +17,9 @@ export default {
       offset:  { type: "integer", minimum: 0 },
     },
   },
+  // What ctx[outputVar] receives when the node-level outputVar is set.
+  primaryOutput: "rows",
+
   outputSchema: {
     type: "object",
     required: ["rows", "rowCount"],

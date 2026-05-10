@@ -30,21 +30,21 @@
           <q-spinner-dots color="primary" size="32px" />
         </div>
 
-        <div v-else class="column q-gutter-md" style="max-width: 720px;">
-          <q-input v-model="form.name" dense filled label="Name" autofocus />
+        <div v-else class="column q-gutter-md q-pl-md" style="max-width: 720px;">
+          <q-input  class="q-pl-sm" v-model="form.name" dense outlined label="Name" autofocus   />
 
-          <q-select
+          <q-select class="q-pl-sm"
             v-model="form.graphId"
-            dense filled label="Flow"
+            dense outlined label="Flow"
             :options="graphOptions"
             emit-value map-options
             :disable="!isNew"
             :hint="!isNew ? 'Flow cannot be changed once a trigger is saved.' : ''"
           />
 
-          <q-select
+          <q-select class="q-pl-sm"
             v-model="form.type"
-            dense filled label="Type"
+            dense outlined label="Type"
             :options="typeOptions"
             emit-value map-options
             :disable="!isNew"
@@ -61,20 +61,20 @@
             :trigger-id="isNew ? null : route.params.id"
           />
           <div v-else>
-            <div class="text-caption text-grey q-mb-xs">
+            <div class="text-caption text-grey q-mb-xs q-pl-sm">
               Config (JSON) — {{ currentHint }}
             </div>
-            <q-input
+            <q-input class="q-pl-sm"
               v-model="configText"
               type="textarea"
-              dense filled autogrow
+              dense outlined autogrow
               input-style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12.5px; min-height: 220px;"
               :error="!configParsed.ok"
               :error-message="configParsed.ok ? '' : configParsed.error"
             />
           </div>
 
-          <q-toggle v-model="form.enabled" label="Enabled (subscribe immediately)" dense />
+          <q-toggle v-model="form.enabled" class="q-pl-md" label="Enabled (subscribe immediately)" dense />
 
           <q-banner v-if="error" dense class="bg-red-10 text-red-2"
                     style="white-space: pre-wrap;">
@@ -175,7 +175,7 @@ const graphs = ref([]);
 const typeEditor = shallowRef(null);
 
 const graphOptions = computed(() =>
-  graphs.value.map(g => ({ label: `${g.name} (v${g.version})`, value: g.id })));
+  graphs.value.map(g => ({ label: `${g.name}`, value: g.id })));
 const typeOptions = computed(() =>
   Object.entries(TYPE_TEMPLATES).map(([v, t]) => ({ label: t.label, value: v })));
 const currentHint = computed(() => TYPE_TEMPLATES[form.value.type]?.hint || "");

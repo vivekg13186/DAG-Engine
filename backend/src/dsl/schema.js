@@ -43,6 +43,12 @@ export const dagSchema = {
           onError:     { type: "string", enum: ["continue", "terminate"], default: "terminate" },
           batch:       { type: "boolean", default: false },
           batchOver:   { type: "string" }, // expression resolving to an array
+          // Optional ctx-variable name. When set, the engine writes the
+          // plugin's "primary" output (or the whole output object if the
+          // plugin doesn't declare one) to ctx[outputVar] after each run,
+          // so downstream nodes can read it as ${<outputVar>} without an
+          // explicit `outputs:` mapping.
+          outputVar:   { type: "string", pattern: "^[A-Za-z_][A-Za-z0-9_]*$" },
         },
       },
     },

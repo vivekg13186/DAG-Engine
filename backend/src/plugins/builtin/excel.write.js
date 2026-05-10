@@ -5,78 +5,91 @@ import { resolveSafePath } from "../io/util.js";
 
 export default {
   name: "excel.write",
-  description: "Write rows to an .xlsx file. Single-sheet (`sheet` + `rows` + optional `headers`) or multi-sheet (`sheets: [{name, rows, headers}]`).",
+  description:
+    "Write a 2D array of values to an .xlsx file. The first row is treated " +
+    "as the column headers (rendered bold); the rest are data rows. Pass " +
+    "`data` as a ${var} reference to a 2D array built upstream " +
+    "(e.g. by a transform node).",
+
   inputSchema: {
+    type: "object",
+    required: ["path", "data"],
+    properties: {
+      path: {
+        type: "string",
+        title: "File path",
+        description: "Where to write the .xlsx file.",
+      },
+      sheet: {
+        type: "string",
+        title: "Sheet name",
+        default: "Sheet1",
+      },
+      // `data` is type-less so the property panel renders a plain text input.
+      // The user types a ${var} reference; the engine resolves it to the
+      // actual 2D array before this plugin runs.
+      data: {
+        title: "Data",
+        placeholder: "${matrix}",
+        description:
+          "Reference to a 2D array (use ${var}). First row = headers, rest = " +
+          "rows. Build the array upstream with a transform node.",
+      },
+      mkdir: { type: "boolean", title: "Create parent dirs", default: false },
+    },
+  },
+
+  // What ctx[outputVar] receives when the node-level outputVar is set.
+  primaryOutput: "path",
+
+  outputSchema: {
     type: "object",
     required: ["path"],
     properties: {
-      path: { type: "string" },
-      // Single-sheet mode
-      sheet:   { type: "string", default: "Sheet1" },
-      rows:    { type: "array" },                     // [{...}, ...] OR [[...], ...]
-      headers: { type: "array", items: { type: "string" } },
-      // Multi-sheet mode (overrides single-sheet props if present)
-      sheets: {
-        type: "array",
-        items: {
-          type: "object",
-          required: ["name", "rows"],
-          properties: {
-            name:    { type: "string" },
-            rows:    { type: "array" },
-            headers: { type: "array", items: { type: "string" } },
-          },
-        },
-      },
-      mkdir: { type: "boolean", default: false },
+      path:     { type: "string" },
+      sheet:    { type: "string" },
+      rowCount: { type: "integer" },
     },
   },
-  outputSchema: {
-    type: "object",
-    required: ["path", "sheets"],
-    properties: {
-      path:   { type: "string" },
-      sheets: { type: "array" },
-    },
-  },
-  async execute({ path: p, sheet = "Sheet1", rows, headers, sheets, mkdir: doMkdir = false }) {
-    if (!Array.isArray(sheets)) {
-      if (!Array.isArray(rows)) throw new Error("excel.write: provide `sheets[]` or single-sheet `rows[]`");
-      sheets = [{ name: sheet, rows, headers }];
+
+  async execute({ path: p, sheet = "Sheet1", data, mkdir: doMkdir = false }) {
+    data = parseIfJsonString(data);
+    if (Array.isArray(data)) {
+      data = data.map(row => typeof row === "string" ? parseIfJsonString(row) : row);
     }
+
+    if (!Array.isArray(data) || data.length === 0) {
+      throw new Error(
+        "excel.write: data must resolve to a non-empty 2D array. " +
+        "Pass `${var}` referencing a 2D array (e.g. produced by transform).",
+      );
+    }
+    const [headers, ...rows] = data;
+    if (!Array.isArray(headers)) {
+      throw new Error("excel.write: first row of data must be an array of column names");
+    }
+    if (rows.some(r => !Array.isArray(r))) {
+      throw new Error("excel.write: every data row must be an array — got a non-array row");
+    }
+
     const abs = resolveSafePath(p);
     if (doMkdir) await mkdir(path.dirname(abs), { recursive: true });
 
     const wb = new ExcelJS.Workbook();
-    const summary = [];
-    for (const s of sheets) {
-      const ws = wb.addWorksheet(s.name);
-      const cols = inferColumns(s.rows, s.headers);
-      if (cols.length) {
-        ws.addRow(cols);
-        ws.getRow(1).font = { bold: true };
-      }
-      for (const r of s.rows) {
-        if (Array.isArray(r)) ws.addRow(r);
-        else ws.addRow(cols.map(c => r?.[c] ?? null));
-      }
-      summary.push({ name: s.name, rowCount: s.rows.length });
-    }
+    const ws = wb.addWorksheet(sheet);
+    ws.addRow(headers);
+    ws.getRow(1).font = { bold: true };
+    for (const r of rows) ws.addRow(r);
+
     await wb.xlsx.writeFile(abs);
-    return { path: abs, sheets: summary };
+    return { path: abs, sheet, rowCount: rows.length };
   },
 };
 
-function inferColumns(rows, explicit) {
-  if (explicit && explicit.length) return explicit;
-  if (!rows.length) return [];
-  if (Array.isArray(rows[0])) return [];     // arrays-of-arrays mode → no header row
-  // Object mode: union of all keys preserving first-seen order.
-  const seen = new Set(), cols = [];
-  for (const r of rows) {
-    if (r && typeof r === "object") {
-      for (const k of Object.keys(r)) if (!seen.has(k)) { seen.add(k); cols.push(k); }
-    }
-  }
-  return cols;
+function parseIfJsonString(v) {
+  if (typeof v !== "string") return v;
+  const t = v.trim();
+  if (!(t.startsWith("[") || t.startsWith("{"))) return v;
+  try { return JSON.parse(t); }
+  catch { return v; }
 }

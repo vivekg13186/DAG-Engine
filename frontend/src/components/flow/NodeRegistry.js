@@ -65,6 +65,7 @@ function makeDefaultNode(plugin) {
       retryDelay:  0,
       onError:     "terminate",
       batchOver:   "",
+      outputVar:   "",
       // Reference kept on the node so the property panel + display
       // component can read schemas without a registry lookup.
       plugin,

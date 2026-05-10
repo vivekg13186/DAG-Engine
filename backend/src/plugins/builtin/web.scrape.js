@@ -60,6 +60,9 @@ export default {
       },
     },
   },
+  // What ctx[outputVar] receives when the node-level outputVar is set.
+  primaryOutput: "results",
+
   outputSchema: {
     type: "object",
     required: ["status", "results"],

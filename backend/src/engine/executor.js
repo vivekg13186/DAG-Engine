@@ -207,10 +207,21 @@ export async function executeDag(parsed, opts = {}) {
     // 4. Surface the node's outputs into ctx.
     //   - Each `outputs: { pluginField: ctxVar }` mapping writes the named
     //     subfield to the ROOT of ctx (so downstream nodes do `${ctxVar}`).
+    //   - `node.outputVar` (when set) is the new ergonomic shortcut: the
+    //     engine drops the plugin's "primary" output (or the whole output
+    //     object as a fallback) at ctx[outputVar].
     //   - Full raw plugin output is also kept on ctx.nodes[name].output via
     //     recordOutcome below.
     const finishedAt = new Date().toISOString();
     applyOutputMapping(output, node.outputs, ctx);
+    if (node.outputVar) {
+      const plugin = registry.get(node.action);
+      const primary = plugin?.primaryOutput;
+      ctx[node.outputVar] =
+        primary && output && typeof output === "object" && primary in output
+          ? output[primary]
+          : output;
+    }
     recordOutcome(node.name, {
       status: NodeStatus.SUCCESS, output, attempts, startedAt, finishedAt,
     });

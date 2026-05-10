@@ -16,6 +16,9 @@ export default {
       onConflict: { type: "string", enum: ["nothing", "error"], default: "error" },
     },
   },
+  // What ctx[outputVar] receives when the node-level outputVar is set.
+  primaryOutput: "rows",
+
   outputSchema: {
     type: "object",
     required: ["rows", "rowCount"],

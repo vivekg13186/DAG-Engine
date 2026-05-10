@@ -16,6 +16,9 @@ export default {
       mkdir:    { type: "boolean", default: false },
     },
   },
+  // What ctx[outputVar] receives when the node-level outputVar is set.
+  primaryOutput: "path",
+
   outputSchema: {
     type: "object",
     required: ["path", "size"],

@@ -13,6 +13,9 @@ export default {
       missingOk: { type: "boolean", default: false },     // don't throw if absent
     },
   },
+  // What ctx[outputVar] receives when the node-level outputVar is set.
+  primaryOutput: "deleted",
+
   outputSchema: {
     type: "object",
     required: ["path", "deleted"],

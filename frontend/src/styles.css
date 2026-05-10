@@ -103,6 +103,9 @@ html, body, #app {
   font-weight: 400;
   color: var(--text-muted);
 }
+.q-page{
+  background-color: #fff;
+}
 .app-page {
   padding: 16px;
 }

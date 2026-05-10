@@ -54,7 +54,7 @@ function onKeydown(e) {
           type="textarea"
           dense
            
-          filled
+          outlined
           autogrow
           input-style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12.5px; min-height: 240px;"
           :error="!parsed.ok"

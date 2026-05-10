@@ -14,6 +14,9 @@ export default {
       ms: { type: "integer", minimum: 0, maximum: MAX_DELAY_MS },
     },
   },
+  // What ctx[outputVar] receives when the node-level outputVar is set.
+  primaryOutput: "slept",
+
   outputSchema: {
     type: "object",
     required: ["slept"],

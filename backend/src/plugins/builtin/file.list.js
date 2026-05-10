@@ -15,6 +15,9 @@ export default {
       includeHidden: { type: "boolean", default: false },
     },
   },
+  // What ctx[outputVar] receives when the node-level outputVar is set.
+  primaryOutput: "entries",
+
   outputSchema: {
     type: "object",
     required: ["entries", "count"],

@@ -20,7 +20,7 @@
     <q-input
       :model-value="cfg.config || ''"
       @update:model-value="set('config', $event)"
-      dense filled
+      dense outlined
       label="Config *"
       placeholder="mailpit"
       :error="!cfg.config"
@@ -35,13 +35,13 @@
     <q-input
       :model-value="cfg.mailbox || ''"
       @update:model-value="set('mailbox', $event)"
-      dense filled
+      dense outlined
       label="Mailbox"
       placeholder="INBOX"
       hint="Optional. Overrides the config's `folder` field. Defaults to INBOX."
     />
 
-    <div class="row q-col-gutter-sm items-center">
+    <div class="row q-col-gutter-sm items-center q-pl-md">
       <div class="col-6">
         <q-toggle
           :model-value="cfg.markAsSeen !== false"
@@ -60,7 +60,7 @@
       </div>
     </div>
 
-    <q-toggle
+    <q-toggle class="q-pl-sm"
       :model-value="cfg.useIdle !== false"
       @update:model-value="set('useIdle', $event)"
       dense
@@ -70,7 +70,7 @@
     <q-input
       :model-value="cfg.pollIntervalMs ?? 60000"
       @update:model-value="setNumber('pollIntervalMs', $event)"
-      dense filled
+      dense outlined
       type="number"
       label="Poll interval (ms)"
       hint="Used when IDLE isn't available or is disabled. Minimum 5000."

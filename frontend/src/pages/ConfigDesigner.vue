@@ -26,7 +26,7 @@
         </q-toolbar-title>
         <q-space />
         <q-btn
-          unelevated round
+          unelevated  
           color="primary"
           icon="save"
           class="btn-icon-primary"
@@ -53,9 +53,9 @@
         <div v-else class="q-pa-md column q-gutter-md" style="max-width: 720px;">
           <div class="row q-col-gutter-md">
             <div class="col-7">
-              <q-input
+              <q-input class="q-pl-md"
                 v-model="form.name"
-                dense filled label="Name *"
+                dense outlined label="Name *"
                 :error="!nameOk"
                 :error-message="nameError"
                 hint="Reference in expressions as ${config.name.key}"
@@ -66,7 +66,7 @@
                 v-model="form.type"
                 :options="typeOptions"
                 emit-value map-options
-                dense filled label="Type *"
+                dense outlined label="Type *"
                 :disable="!isNew"
                 :hint="isNew ? '' : 'Type is fixed after creation'"
               />
@@ -75,7 +75,7 @@
 
           <q-input
             v-model="form.description"
-            dense filled label="Description"
+            dense outlined label="Description"
             type="textarea" autogrow
             input-style="min-height: 60px;"
           />

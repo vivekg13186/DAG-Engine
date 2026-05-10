@@ -255,6 +255,7 @@ function applyModel(model) {
         retryDelay:  n.retryDelay || 0,
         onError:     n.onError    || "terminate",
         batchOver:   n.batchOver  || "",
+        outputVar:   n.outputVar  || "",
         plugin,
       },
     };
@@ -315,6 +316,7 @@ function extractAndEmit() {
       retryDelay:  n.data?.retryDelay || 0,
       onError:     n.data?.onError    || "terminate",
       batchOver:   n.data?.batchOver  || "",
+      outputVar:   n.data?.outputVar  || "",
     };
   });
   const newEdges = edges.value

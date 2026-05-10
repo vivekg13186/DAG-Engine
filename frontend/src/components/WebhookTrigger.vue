@@ -12,7 +12,7 @@
     <q-select
       :model-value="cfg.methods || ['POST']"
       @update:model-value="set('methods', $event)"
-      dense filled
+      dense outlined
       multiple
       use-chips
       label="Allowed methods"
@@ -23,7 +23,7 @@
     <q-input
       :model-value="cfg.secret || ''"
       @update:model-value="setSecret"
-      dense filled
+      dense outlined
       label="Shared secret"
       :type="showSecret ? 'text' : 'password'"
       autocomplete="new-password"

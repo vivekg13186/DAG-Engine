@@ -15,6 +15,9 @@ export default {
       allSheets: { type: "boolean", default: false },
     },
   },
+  // What ctx[outputVar] receives when the node-level outputVar is set.
+  primaryOutput: "rows",
+
   outputSchema: {
     type: "object",
     properties: {

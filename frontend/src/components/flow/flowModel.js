@@ -95,6 +95,7 @@ function normalizeNode(n) {
     retryDelay:  n.retryDelay || 0,
     onError:     n.onError || "terminate",
     batchOver:   n.batchOver || "",
+    outputVar:   n.outputVar || "",
   };
 }
 
@@ -150,6 +151,7 @@ function serializeNode(n) {
   if (n.retryDelay)             out.retryDelay = n.retryDelay;
   if (n.onError && n.onError !== "terminate") out.onError = n.onError;
   if (n.batchOver)              out.batchOver  = n.batchOver;
+  if (n.outputVar)              out.outputVar  = n.outputVar;
   return out;
 }
 

@@ -12,6 +12,9 @@ export default {
       timeoutMs: { type: "integer", minimum: 1, maximum: 60000, default: 15000 },
     },
   },
+  // What ctx[outputVar] receives when the node-level outputVar is set.
+  primaryOutput: "body",
+
   outputSchema: {
     type: "object",
     required: ["status"],

@@ -11,6 +11,9 @@ export default {
       level:   { type: "string", enum: ["debug", "info", "warn", "error"], default: "info" },
     },
   },
+  // What ctx[outputVar] receives when the node-level outputVar is set.
+  primaryOutput: "message",
+
   outputSchema: {
     type: "object",
     required: ["message"],

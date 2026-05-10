@@ -85,9 +85,10 @@
             @update:model-value="set(item.bind, $event)"
             :label="item.label"
             :hint="item.hint"
+            :placeholder="item.placeholder"
             :rules="buildRules(item.validation, item)"
             lazy-rules
-            input-style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; min-height: 60px;"
+            input-style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; min-height: 60px; white-space: pre;"
           />
 
           <!-- SELECT -->
@@ -138,7 +139,23 @@
             </div>
           </div>
 
-          <!-- KEY/VALUES (dynamic key/value pairs, e.g. node outputs) -->
+          <!-- INFO (read-only label/value rows, e.g. plugin Returns docs) -->
+          <div v-else-if="item.ui_type === 'info'" class="info-block">
+            <div v-if="item.hint" class="text-caption text-muted q-mb-xs">
+              {{ item.hint }}
+            </div>
+            <div v-for="row in item.rows || []" :key="row.label" class="info-row">
+              <code class="info-key">{{ row.label }}</code>
+              <span  class="info-val">{{ row.value }}</span>
+            </div>
+            <div v-if="!(item.rows || []).length" class="text-caption text-muted">
+              (no fields)
+            </div>
+          </div>
+
+          <!-- KEY/VALUES (dynamic key/value pairs, e.g. node outputs).
+               The schema item may set `keyPlaceholder` / `valuePlaceholder`
+               to label the columns; falls back to "key" / "value". -->
           <div v-else-if="item.ui_type === 'keyvalues'">
             <div class="row items-center q-mb-xs">
               <div class="text-caption text-muted col">{{ item.label }}</div>
@@ -148,11 +165,13 @@
             <div v-for="row in kvRows(item.bind)" :key="row._k"
                  class="row q-col-gutter-xs items-center q-mb-xs">
               <div class="col-5">
-                <q-input outlined dense placeholder="key"
+                <q-input outlined dense
+                         :placeholder="item.keyPlaceholder || 'key'"
                          v-model="row.k" @update:model-value="syncKv(item.bind)" />
               </div>
               <div class="col-6">
-                <q-input outlined dense placeholder="value"
+                <q-input outlined dense
+                         :placeholder="item.valuePlaceholder || 'value'"
                          v-model="row.v" @update:model-value="syncKv(item.bind)" />
               </div>
               <div class="col-1 text-right">
@@ -494,4 +513,29 @@ defineExpose({
   font-size: 11px;
 }
 .property-table :deep(tbody td) { padding: 0 6px; font-size: 12px; }
+
+/* `info` ui_type — read-only key/value documentation rows. */
+.info-block { padding: 4px 0; }
+.info-row {
+  display: flex;
+  gap: 8px;
+  padding: 2px 0;
+  font-size: 11.5px;
+  align-items: baseline;
+  border-bottom: 1px dashed var(--border);
+}
+.info-row:last-child { border-bottom: 0; }
+.info-key {
+  flex: 0 0 32%;
+  color: var(--primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  background: var(--primary-soft);
+  padding: 0 4px;
+  border-radius: 3px;
+}
+.info-val {
+  flex: 1 1 auto;
+  color: var(--text-muted);
+}
 </style>

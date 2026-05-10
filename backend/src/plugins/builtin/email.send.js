@@ -55,6 +55,9 @@ export default {
     },
   },
 
+  // What ctx[outputVar] receives when the node-level outputVar is set.
+  primaryOutput: "messageId",
+
   outputSchema: {
     type: "object",
     required: ["messageId"],

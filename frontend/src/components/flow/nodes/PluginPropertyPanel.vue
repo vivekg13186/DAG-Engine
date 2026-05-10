@@ -46,7 +46,7 @@ const emit = defineEmits(["update"]);
 // `buildDraft()` during setup without tripping the TDZ on these `const`s.
 // (Function declarations are hoisted; `const` initialisers are not.)
 const NODE_FIELDS = [
-  "name", "description", "executeIf", "retry", "retryDelay", "onError", "batchOver",
+  "name", "description", "executeIf", "retry", "retryDelay", "onError", "batchOver", "outputVar",
 ];
 
 // ── Editor draft ───────────────────────────────────────────────────────
@@ -99,8 +99,11 @@ function buildSchema(inputSchema) {
   };
 
   // ---- Inputs panel: derived from the plugin's schema --------------
+  // Plugins may set `title` on a property to override the label shown in
+  // the property panel. Otherwise we fall back to the property name itself
+  // — that's been the existing behaviour and keeps the UI compact.
   const inputsChildren = Object.entries(properties).map(([key, def]) =>
-    fieldFromSchema(`inputs.${key}`, key, def, required.has(key))
+    fieldFromSchema(`inputs.${key}`, def.title || key, def, required.has(key))
   );
   const inputsPanel = {
     name: "Inputs",
@@ -110,17 +113,83 @@ function buildSchema(inputSchema) {
       : [{ ui_type: "textarea", label: "Inputs (JSON)", bind: "__json.inputs", hint: "Raw JSON" }],
   };
 
-  // ---- Outputs panel: dynamic key/value pairs ----------------------
+  // ---- Outputs panel: maps plugin output fields → ctx variable names.
+  // Each row pairs a plugin output (dot paths ok, e.g. body.id) with the
+  // ctx-variable name it should become available under for downstream
+  // nodes. The placeholders read "node output" / "var name" so the
+  // intent is obvious without the user having to read the panel hint.
   const outputsPanel = {
     name: "Outputs",
     collapsed: true,
     children: [
-      { ui_type: "keyvalues", label: "Plugin field → ctx variable", bind: "outputs",
-        hint: "Maps a plugin output field (dot path ok) to a ctx variable name." },
+      { ui_type: "keyvalues", label: "Map plugin outputs to ctx variables", bind: "outputs",
+        keyPlaceholder:   "node output",
+        valuePlaceholder: "var name",
+        hint: "Each row binds a plugin output field (dot path ok) to a ctx " +
+              "variable. Downstream nodes can then read it as ${<var name>}." },
     ],
   };
 
-  return [nodePanel, inputsPanel, outputsPanel];
+  // ---- Returns panel: read-only documentation built from outputSchema.
+  // Lets the user see what the plugin produces (for ${nodes.<name>.output.X}
+  // bindings) without leaving the editor.
+  const returnsPanel = buildReturnsPanel(props.node?.data?.plugin);
+
+  return [nodePanel, inputsPanel, outputsPanel, ...(returnsPanel ? [returnsPanel] : [])];
+}
+
+/**
+ * Build a panel listing the plugin's outputSchema fields, plus a
+ * highlight for whichever key the plugin tagged as `primaryOutput`
+ * (that's what `outputVar` writes to ctx). Returns null when the
+ * plugin doesn't ship an outputSchema.
+ *
+ * The panel is rendered through PropertyEditor's `info` ui_type, which
+ * we add to the editor in the same patch — it's a non-editable list of
+ * { label, value } rows.
+ */
+function buildReturnsPanel(plugin) {
+  const schema = plugin?.outputSchema;
+  const props  = schema?.properties;
+  if (!props || typeof props !== "object" || !Object.keys(props).length) {
+    return null;
+  }
+  const required = new Set(schema.required || []);
+  const primary  = plugin?.primaryOutput;
+  const rows = Object.entries(props).map(([key, def]) => {
+    const tag = describeType(def);
+    const tags = [tag];
+    if (required.has(key)) tags.push("required");
+    if (primary === key)   tags.push("primary");
+    return {
+      label: key,
+      value: [tags.join(" · "), def.description || ""].filter(Boolean).join(" — "),
+    };
+  });
+  return {
+    name: "Returns",
+    collapsed: true,
+    children: [
+      { ui_type: "info", label: "", bind: "__returns",
+        hint: primary
+          ? `Map any field below in the Outputs panel to wire it onto a ctx variable. ` +
+            `\`${primary}\` is the plugin's primary value.`
+          : "Map any field below in the Outputs panel to wire it onto a ctx variable.",
+        rows,
+      },
+    ],
+  };
+}
+
+function describeType(def) {
+  if (!def) return "any";
+  if (Array.isArray(def.enum)) return def.enum.join(" | ");
+  if (def.type === "array") {
+    const t = def.items?.type;
+    return t ? `array<${t}>` : "array";
+  }
+  if (Array.isArray(def.type)) return def.type.join(" | ");
+  return def.type || "any";
 }
 
 /** Convert one JSON Schema property into a PropertyEditor child. */
@@ -170,7 +239,12 @@ function fieldFromSchema(bind, label, def, isRequired) {
      def.format === "multiline" ||
      def.contentMediaType === "text/plain")
   ) {
-    return { ui_type: "textarea", label, bind, validation, hint: def.description };
+    return {
+      ui_type: "textarea",
+      label, bind, validation,
+      hint: def.description,
+      placeholder: def.placeholder,
+    };
   }
   // 7) anything else (object, mixed-type arrays, oneOf) → JSON textarea.
   //
@@ -178,9 +252,13 @@ function fieldFromSchema(bind, label, def, isRequired) {
   // dotted-path resolver walks it cleanly (e.g. `__json.inputs.headers`
   // becomes draft.__json.inputs.headers, NOT a flat key with a dot in
   // its name — that mismatched the editor's split('.') walk).
+  //
+  // Plugins can pass a `placeholder` example string on the schema (custom
+  // convention) — it'll appear inside the textarea while the field is empty.
   if (def.type === "object" || def.type === "array") {
     return { ui_type: "textarea", label: `${label} (JSON)`, bind: `__json.${bind}`,
-             hint: def.description || "Edit as JSON" };
+             hint: def.description || "Edit as JSON",
+             placeholder: def.placeholder };
   }
   // 8) default → string input. Includes URL formatting via validation.
   return {

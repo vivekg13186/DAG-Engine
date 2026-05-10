@@ -17,6 +17,9 @@ export default {
       args:      { type: "array" },
     },
   },
+  // What ctx[outputVar] receives when the node-level outputVar is set.
+  primaryOutput: "rows",
+
   outputSchema: {
     type: "object",
     required: ["rows", "rowCount"],
