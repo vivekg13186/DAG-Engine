@@ -49,6 +49,26 @@ export const AI = {
   status: () => api.get("/ai/status").then(r => r.data),
   // messages: [{ role: "user"|"assistant", content: string }]
   chat:   (messages) => api.post("/ai/chat", { messages }).then(r => r.data),
+
+  // Tool-using workflow agent. The backend runs a multi-turn tool-use
+  // loop (Anthropic/OpenAI) over: get_current_graph, update_graph,
+  // list_triggers, create_trigger, list_configs.
+  //
+  // Args:
+  //   messages       — the chat history so far (same shape as `chat`)
+  //   graphId        — id of the saved graph the editor is on (null for new)
+  //   currentGraph   — the editor's working draft DSL (so the agent sees
+  //                    unsaved edits via get_current_graph)
+  //
+  // Returns:
+  //   {
+  //     message:        { role: "assistant", content },
+  //     proposedGraph?: <DSL object>           // present when the agent ran update_graph
+  //     triggerCreated?: { id, name, type }    // present when create_trigger fired
+  //     traces: [{ tool, input, summary }]     // ordered tool calls
+  //   }
+  agent: ({ messages, graphId = null, currentGraph = null }) =>
+    api.post("/ai/agent/chat", { messages, graphId, currentGraph }).then(r => r.data),
 };
 
 export const Configs = {

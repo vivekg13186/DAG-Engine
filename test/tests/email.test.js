@@ -22,7 +22,7 @@ describe("email.send", () => {
       nodeName: "send_mail",
       inputs: {
         config:  CONFIGS.email,
-        to:      "vivek.ilionx.25@gmail.com",
+        to:      "xxx",
         subject: "DAG-engine livetest",
         text:    "This message was sent by the live integration test suite.",
       },

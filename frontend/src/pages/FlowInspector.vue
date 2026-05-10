@@ -354,15 +354,19 @@ watch([statusFilter, execFilter], () => { execPagination.value.page = 1; });
 watch(triggerFilter, () => { triggerPagination.value.page = 1; });
 
 // ── Helpers ────────────────────────────────────────────────────────────────
+//
+// Workflows are single-row now (versioning removed in migration 008), so
+// the label is just the workflow name. Earlier revisions appended
+// `(v<version>)`, which rendered as `(vundefined)` once the column was
+// dropped — keep these helpers cleanly version-free.
 function formatGraph(row) {
-    if (row.graph_name) return row.graph_version
-        ? `${row.graph_name} (v${row.graph_version})`
-        : row.graph_name;
+    if (row.graph_name) return row.graph_name;
     return graphName(row.graph_id);
 }
 function graphName(graphId) {
     const g = wf_rows.value.find(x => x.id === graphId);
-    return g ? `${g.name} (v${g.version})` : (graphId ? graphId.slice(0, 8) + "…" : "");
+    if (g) return g.name;
+    return graphId ? graphId.slice(0, 8) + "…" : "";
 }
 function triggerStatusLabel(row) {
     if (!row?.enabled) return "stopped";

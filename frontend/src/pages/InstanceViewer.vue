@@ -4,7 +4,7 @@
   Reachable via /instanceViewer/:id (linked from FlowInspector).
 
   Layout (top → bottom):
-    • Header           : back button, graph name + version, execution status,
+    • Header           : back button, graph name, execution status,
                          live "refresh" while the run is still in flight.
     • DAG view         : <GraphView mode="exec"> with per-node statuses derived
                          from execution.context.nodes.<name>.status. Nothing
@@ -117,11 +117,10 @@ const parsed     = ref(null);   // { nodes, edges, ... } — for GraphView
 // ── Derived ────────────────────────────────────────────────────────────────
 const status = computed(() => execution.value?.status || "");
 
+// Workflows are single-row (no `version` column any more) — the header
+// is just the graph name.
 const headerTitle = computed(() => {
-    if (graph.value?.name) {
-        const v = graph.value.version ? ` v${graph.value.version}` : "";
-        return `${graph.value.name}${v}`;
-    }
+    if (graph.value?.name) return graph.value.name;
     if (execution.value?.id) return execution.value.id.slice(0, 8) + "…";
     return "Execution";
 });
