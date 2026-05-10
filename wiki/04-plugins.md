@@ -1,11 +1,16 @@
 # Plugin reference
 
-21 built-in plugins, grouped by purpose. Every plugin is a `.js` file under `backend/src/plugins/builtin/` — drop a new file there with the right shape and it auto-registers on the next worker start.
+Built-in plugins, grouped by purpose. Every plugin is a `.js` file under `backend/src/plugins/builtin/` — drop a new file there with the right shape and it auto-registers on the next worker start.
 
 The full set, alphabetically:
-`condition`, `csv.read`, `csv.write`, `delay`, `email.send`, `excel.read`, `excel.write`, `file.delete`, `file.list`, `file.read`, `file.stat`, `file.write`, `http.request`, `log`, `sql.delete`, `sql.execute`, `sql.insert`, `sql.select`, `sql.update`, `transform`, `web.scrape`.
+`csv.read`, `csv.write`, `delay`, `email.send`, `excel.read`, `excel.write`, `file.delete`, `file.list`, `file.read`, `file.stat`, `file.write`, `http.request`, `log`, `mqtt.publish`, `sql.delete`, `sql.execute`, `sql.insert`, `sql.select`, `sql.update`, `transform`, `web.scrape`.
 
-The live list (with input/output schemas) is also at `GET /plugins`. The YAML editor uses it for autocomplete.
+> **Removed:** the dedicated `condition` plugin is gone — gate downstream
+> nodes with `executeIf` instead. The visual editor reads each plugin's
+> JSON Schema and renders the property panel from it, so what you see in
+> the canvas is always in sync with what's documented here.
+
+The live list (with input/output schemas) is also at `GET /plugins`. The AI assistant uses it for autocomplete and code generation.
 
 ---
 
@@ -13,65 +18,57 @@ The live list (with input/output schemas) is also at `GET /plugins`. The YAML ed
 
 ### `log`
 
-Print a message to the worker's stdout (and to the `node-events.log` file).
+Print a message to the worker's stdout (and to `node-events.log`).
 
-```yaml
-- action: log
-  inputs:
-    message: "Hello, ${name}!"
-    level: info        # debug | info | warn | error (default info)
+```json
+{
+  "action": "log",
+  "inputs": {
+    "message": "Hello, ${name}!",
+    "level":   "info"
+  }
+}
 ```
 
-Output: `{ message }` — passes the rendered string through, useful as a downstream expression source.
+Output: `{ message }` — passes the rendered string through, useful as a downstream expression source. `primaryOutput: "message"`.
 
 ---
 
 ### `delay`
 
-Sleep for `ms` milliseconds. Handy for throttling, demos, or synthetic timing tests.
+Sleep for `ms` milliseconds. Hard ceiling 24h (anything longer should use a `schedule` trigger). Handy for throttling, demos, or synthetic timing tests.
 
-```yaml
-- action: delay
-  inputs:
-    ms: 500            # 0–60000
+```json
+{
+  "action": "delay",
+  "inputs": { "ms": 500 }
+}
 ```
 
-Output: `{ slept: <ms> }`.
+Output: `{ slept: <ms> }`. `primaryOutput: "slept"`.
 
 ---
 
 ### `transform`
 
-Identity transform — returns whatever you put in `value`. Use it to reshape data with `${...}` expressions.
+Evaluate a FEEL expression and return the result under `value`. The dedicated `condition` plugin was removed — to gate nodes by a boolean, use `executeIf` directly on the downstream node and read the upstream value from `${nodes.<name>.output.value}` or via an `outputVar`.
 
-```yaml
-- action: transform
-  inputs:
-    value:
-      summary: "${nodes.fetch.output.body.title}"
-      authorId: "${nodes.fetch.output.body.userId}"
+```json
+{
+  "action": "transform",
+  "inputs": {
+    "expression": "{ summary: nodes.fetch.output.body.title, authorId: nodes.fetch.output.body.userId }"
+  }
+}
 ```
 
-Output: `{ value: <whatever you passed> }`.
+The expression is **raw FEEL** — no `${…}` wrapping. Examples:
 
----
+- `"user.firstName + \" \" + user.lastName"` → string
+- `"for o in orders return o.total"` → list
+- `"if x > 0 then \"positive\" else \"non-positive\""` → string
 
-### `condition`
-
-Coerces `value` to a boolean. Combine with downstream `executeIf` to gate branches.
-
-```yaml
-- name: check
-  action: condition
-  inputs:
-    value: "${count > 0}"
-- name: act
-  action: log
-  executeIf: "${nodes.check.output.result}"
-  inputs: { message: "have items" }
-```
-
-Output: `{ result: <boolean> }`.
+Output: `{ value: <whatever your expression evaluated to> }`. `primaryOutput: "value"`.
 
 ---
 
@@ -81,17 +78,20 @@ Output: `{ result: <boolean> }`.
 
 Native `fetch` wrapper. Supports JSON or string bodies, custom headers, configurable timeout.
 
-```yaml
-- action: http.request
-  inputs:
-    url: "https://api.example.com/users/${userId}"
-    method: GET                        # GET POST PUT PATCH DELETE HEAD (default GET)
-    headers:
-      authorization: "Bearer ${token}"
-    body:                              # object → JSON.stringify; string → sent as-is
-      name: "Alice"
-    timeoutMs: 15000                   # default 15000, max 60000
+```json
+{
+  "action": "http.request",
+  "inputs": {
+    "url":     "https://api.example.com/users/${userId}",
+    "method":  "GET",
+    "headers": { "authorization": "Bearer ${token}" },
+    "body":    { "name": "Alice" },
+    "timeoutMs": 15000
+  }
+}
 ```
+
+Methods: `GET POST PUT PATCH DELETE HEAD` (default `GET`). Body: object → JSON.stringify; string → sent as-is. Timeout default 15000, max 60000.
 
 Output:
 
@@ -103,7 +103,7 @@ Output:
 }
 ```
 
-Non-2xx responses don't throw — `status` is returned as-is. Use `executeIf` or `onError` to react.
+Non-2xx responses don't throw — `status` is returned as-is. Use `executeIf` or `onError` to react. `primaryOutput: "body"`.
 
 ---
 
@@ -111,19 +111,23 @@ Non-2xx responses don't throw — `status` is returned as-is. Use `executeIf` or
 
 ### `web.scrape`
 
-Fetch a URL, parse with JSDOM, run any number of CSS or XPath queries against it.
+Fetch a URL, parse with JSDOM, run any number of CSS or XPath queries against it. The schema is scrape-shaped, not http-shaped: the inputs are URL + selectors first, then the optional headers / timeout / baseUrl knobs. (`method` and `body` were dropped — almost every scrape is a GET; use `http.request` if you need a POST that returns a body to extract from.)
 
-```yaml
-- action: web.scrape
-  inputs:
-    url: "https://example.com"
-    timeoutMs: 10000
-    queries:
-      - { name: title,    type: css,   selector: "h1" }
-      - { name: links,    type: css,   selector: "a", attr: "href", all: true }
-      - { name: bodyHtml, type: css,   selector: "main", extract: outerHTML }
-      - { name: priceTxt, type: xpath, selector: "//*[@class='price']/text()" }
-      - { name: pCount,   type: xpath, selector: "count(//p)" }   # primitive
+```json
+{
+  "action": "web.scrape",
+  "inputs": {
+    "url": "https://example.com",
+    "queries": [
+      { "name": "title",    "type": "css",   "selector": "h1" },
+      { "name": "links",    "type": "css",   "selector": "a", "attr": "href", "all": true },
+      { "name": "bodyHtml", "type": "css",   "selector": "main", "extract": "outerHTML" },
+      { "name": "priceTxt", "type": "xpath", "selector": "//*[@class='price']/text()" },
+      { "name": "pCount",   "type": "xpath", "selector": "count(//p)" }
+    ],
+    "timeoutMs": 10000
+  }
+}
 ```
 
 Each query:
@@ -134,7 +138,7 @@ Each query:
 - `attr` — attribute name (also implies `extract: attr`).
 - `all` — `true` returns array of matches; `false` (default) returns the first match or null.
 
-Output: `{ url, status, headers, results: { name: value, ... } }`. Per-query failures are captured as `{ __error: "..." }` so one bad selector doesn't lose the rest.
+Output: `{ url, status, headers, results: { name: value, ... } }`. Per-query failures are captured as `{ __error: "..." }` so one bad selector doesn't lose the rest. `primaryOutput: "results"`.
 
 XPath primitives (`count()`, `string()`, `boolean()`, etc.) are detected and return the raw number/string/boolean.
 
@@ -142,94 +146,108 @@ XPath primitives (`count()`, `string()`, `boolean()`, etc.) are detected and ret
 
 ## SQL (Postgres-compatible)
 
-All SQL plugins share the same shape: either supply a raw `query` + `params`, or use the structured form (`table` + ...). Default connection is the engine's own `DATABASE_URL`; pass `connectionString:` per-call to point anywhere else.
+All five SQL plugins share the same three-input shape: **`config` + `sql` + `params`**. There's no per-call connection string and no structured-form helpers any more — you write the parameterised SQL yourself, and the connection comes from a stored **database** configuration.
 
-Connections are pooled per distinct `connectionString`. Identifier names are validated against `^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$` and quoted; values use parameterized binding.
+### Setup once
+
+1. Home → **Configurations** → **+ New** → type **database**.
+2. Fill in `host`, `port`, `database`, `username`, `password`, `ssl`. The password is encrypted at rest (AES-256-GCM keyed by `CONFIG_SECRET`).
+3. Reference it from the plugin's `config` input by its **name**.
+
+The engine assembles a `postgres://user:pass@host:port/db[?sslmode=require]` connection string from those fields and pools per-string.
+
+### Shared schema
+
+| Input | Required | Description |
+|-------|----------|-------------|
+| `config` | yes | Name of a stored database configuration. |
+| `sql` | yes | The query text. Use `$1`, `$2`, … for placeholders. (Multi-line; the property panel renders this as a textarea.) |
+| `params` | no | Reference (`${var}`) to an array of bound values for `$1`, `$2`, … Build the array upstream with a `transform` node, or omit the field if the SQL has no placeholders. |
+
+Output: `{ rows, rowCount }` for every plugin. `primaryOutput: "rows"`.
 
 ### `sql.select`
 
-```yaml
-# Structured form
-- action: sql.select
-  inputs:
-    table: users
-    columns: ["id", "email"]                # default *
-    where: { active: true }                 # null → IS NULL; arrays → = ANY($N)
-    orderBy: "id DESC"                      # validated regex; col + ASC/DESC + NULLS FIRST/LAST
-    limit: 10
-    offset: 0
-
-# Raw form
-- action: sql.select
-  inputs:
-    query: "SELECT * FROM users WHERE id = $1"
-    params: ["${userId}"]
+```json
+{
+  "action": "sql.select",
+  "inputs": {
+    "config": "prodDb",
+    "sql":    "SELECT id, email FROM users WHERE active = $1 ORDER BY id LIMIT $2",
+    "params": "${queryParams}"
+  }
+}
 ```
-
-Output: `{ rows: [...], rowCount: N }`.
 
 ### `sql.insert`
 
-```yaml
-- action: sql.insert
-  inputs:
-    table: users
-    values: { email: "${email}", name: "Alice" }     # object → 1 row
-    # values: [{...}, {...}]                         # array → bulk insert
-    returning: ["id", "email"]                       # optional
-    onConflict: nothing                              # nothing | error (default error)
-```
+Add a `RETURNING` clause if you need the inserted rows back.
 
-Output: `{ rows, rowCount }`.
+```json
+{
+  "action": "sql.insert",
+  "inputs": {
+    "config": "prodDb",
+    "sql":    "INSERT INTO users (name, email) VALUES ($1, $2) RETURNING id, name, email",
+    "params": ["Alice", "alice@example.com"]
+  }
+}
+```
 
 ### `sql.update`
 
-```yaml
-- action: sql.update
-  inputs:
-    table: users
-    set:   { tier: "pro" }
-    where: { email: "${email}" }
-    returning: ["id", "tier"]
-```
+Always include a `WHERE` clause — there's no safety net any more (the `unsafe` flag is gone with the structured form).
 
-**Refuses an UPDATE without a WHERE** unless `unsafe: true`.
+```json
+{
+  "action": "sql.update",
+  "inputs": {
+    "config": "prodDb",
+    "sql":    "UPDATE users SET tier = $1 WHERE email = $2 RETURNING id, tier",
+    "params": ["pro", "alice@example.com"]
+  }
+}
+```
 
 ### `sql.delete`
 
-```yaml
-- action: sql.delete
-  inputs:
-    table: users
-    where: { id: 42 }
-    returning: ["id"]
-```
+Same — include a `WHERE`.
 
-Same `unsafe: true` guard against accidental table-wipe.
+```json
+{
+  "action": "sql.delete",
+  "inputs": {
+    "config": "prodDb",
+    "sql":    "DELETE FROM sessions WHERE expires_at < NOW() RETURNING id"
+  }
+}
+```
 
 ### `sql.execute`
 
-For stored procedures, table-returning functions, or arbitrary statements.
+The escape hatch for stored procedures, table-returning functions, DDL, and anything else that doesn't fit the four CRUD pigeonholes. Same shape — write the SQL.
 
-```yaml
-# Stored procedure: CALL fn($1, $2)
-- action: sql.execute
-  inputs:
-    procedure: "calculate_total"
-    args: [123, "USD"]
-
-# Table-returning function: SELECT * FROM fn($1, ...)
-- action: sql.execute
-  inputs:
-    function: "current_database"
-
-# Raw query
-- action: sql.execute
-  inputs:
-    query: "TRUNCATE TABLE staging RESTART IDENTITY"
+```json
+{
+  "action": "sql.execute",
+  "inputs": {
+    "config": "prodDb",
+    "sql":    "CALL refresh_reports($1)",
+    "params": ["fast_mode"]
+  }
+}
 ```
 
-Output: `{ rows, rowCount }`.
+```json
+{
+  "action": "sql.execute",
+  "inputs": {
+    "config": "prodDb",
+    "sql":    "SELECT * FROM get_daily_summary($1)",
+    "params": ["2026-05-06"]
+  }
+}
+```
 
 ---
 
@@ -237,30 +255,37 @@ Output: `{ rows, rowCount }`.
 
 ### `email.send`
 
-SMTP via nodemailer. Configure the default transport with `SMTP_*` env vars; override per-call with `smtp: { host, port, secure, user, pass }`. Set `SMTP_HOST=json` (or `smtp.host=json`) for a dry-run that renders the message but doesn't dispatch — perfect for tests.
+SMTP via nodemailer. Configure the transport with a stored **mail.smtp** configuration; reference it by name from `config`.
 
-```yaml
-- action: email.send
-  inputs:
-    to: "ops@example.com"                    # string or array
-    cc: ["a@x.com", "b@x.com"]
-    bcc: "c@x.com"
-    from: "DAG Engine <noreply@example.com>" # falls back to SMTP_FROM
-    replyTo: "support@example.com"
-    subject: "Build #${nodes.build.output.id} succeeded"
-    text:    "Plain-text body — ${name}"
-    html:    "<p>HTML body — <strong>${name}</strong></p>"
-    headers:
-      "x-flow-id": "${flowId}"
-    attachments:
-      - { filename: "report.csv", path: "/tmp/report.csv" }
-      - { filename: "inline.txt", content: "hi", contentType: "text/plain" }
-    smtp:                                    # per-call override (optional)
-      host: smtp.mailgun.org
-      port: 587
-      user: postmaster@...
-      pass: ...
+#### Setup once
+
+1. Home → **Configurations** → **+ New** → type **mail.smtp**.
+2. Fill in `host`, `port`, `secure`, `username`, `password`, optional `from`. The password is encrypted at rest.
+3. Reference the config by its name from any number of `email.send` nodes.
+
+```json
+{
+  "action": "email.send",
+  "inputs": {
+    "config":  "sendgrid",
+    "to":      "ops@example.com",
+    "cc":      ["a@x.com", "b@x.com"],
+    "bcc":     "c@x.com",
+    "from":    "DAG Engine <noreply@example.com>",
+    "replyTo": "support@example.com",
+    "subject": "Build #${nodes.build.output.id} succeeded",
+    "text":    "Plain-text body — ${name}",
+    "html":    "<p>HTML body — <strong>${name}</strong></p>",
+    "headers": { "x-flow-id": "${flowId}" },
+    "attachments": [
+      { "filename": "report.csv", "path": "/tmp/report.csv" },
+      { "filename": "inline.txt", "content": "hi", "contentType": "text/plain" }
+    ]
+  }
+}
 ```
+
+`from` is optional on the node — falls back to the config's `from`, then to the config's `username`. `to`, `cc`, `bcc` accept either a single string or an array.
 
 Output:
 
@@ -271,9 +296,45 @@ Output:
   rejected:  [],
   response:  "250 OK ...",
   envelope:  { from: "...", to: ["..."] },
-  preview:   "..."        // populated only in jsonTransport mode
+  preview:   "..."   // populated only in jsonTransport (dry-run) mode
 }
 ```
+
+`primaryOutput: "messageId"`.
+
+---
+
+## MQTT
+
+### `mqtt.publish`
+
+Publish a single MQTT message. The `config` input names a stored **mqtt** configuration that supplies the broker URL and credentials.
+
+#### Setup once
+
+1. Home → **Configurations** → **+ New** → type **mqtt**.
+2. Fill in `url` (`mqtt://...` / `mqtts://...` / `ws://...` / `wss://...`), optional `clientId`, optional `username`, optional `password`.
+3. Reference the config by name from `mqtt.publish` nodes (and from the `mqtt` trigger if you want to subscribe).
+
+```json
+{
+  "action": "mqtt.publish",
+  "inputs": {
+    "config":  "homeAssistant",
+    "topic":   "home/automation/dag-engine",
+    "payload": { "ok": true, "at": "${data.now}" },
+    "qos":     0,
+    "retain":  false
+  }
+}
+```
+
+Payload encoding:
+- `string` → sent on the wire verbatim.
+- `Buffer` → sent as-is.
+- anything else → JSON.stringify.
+
+Output: `{ topic, bytes, qos, retain, messageId }`. `primaryOutput: "messageId"`.
 
 ---
 
@@ -283,66 +344,93 @@ All file plugins go through a shared `resolveSafePath()` helper. When `FILE_ROOT
 
 ### `file.read`
 
-```yaml
-- action: file.read
-  inputs:
-    path: "data/input.txt"
-    encoding: utf8        # utf8 | utf-8 | ascii | latin1 | base64 (default utf8)
+```json
+{
+  "action": "file.read",
+  "inputs": {
+    "path":     "data/input.txt",
+    "encoding": "utf8"
+  }
+}
 ```
 
-Output: `{ path, content, size, encoding }`.
+Encoding: `utf8` | `utf-8` | `ascii` | `latin1` | `base64` (default `utf8`).
+
+Output: `{ path, content, size, encoding }`. `primaryOutput: "content"`.
 
 ### `file.write`
 
-```yaml
-- action: file.write
-  inputs:
-    path: "out/result.txt"
-    content: "${nodes.summarize.output.text}"
-    encoding: utf8        # base64 to write binary
-    mode: overwrite       # overwrite | append (default overwrite)
-    mkdir: true           # create parent dirs (default false)
+```json
+{
+  "action": "file.write",
+  "inputs": {
+    "path":     "out/result.txt",
+    "content":  "${nodes.summarize.output.text}",
+    "encoding": "utf8",
+    "mode":     "overwrite",
+    "mkdir":    true
+  }
+}
 ```
 
-Output: `{ path, size }`.
+`mode`: `overwrite` (default) | `append`. `mkdir`: create parent dirs (default false). Use `encoding: "base64"` to write binary.
+
+Output: `{ path, size }`. `primaryOutput: "path"`.
 
 ### `file.list`
 
-```yaml
-- action: file.list
-  inputs:
-    path: "/data"
-    pattern: "*.csv"      # optional, simple * / ? glob on basename
-    recursive: false      # default false
-    includeHidden: false  # default false
+```json
+{
+  "action": "file.list",
+  "inputs": {
+    "path":          "/data",
+    "pattern":       "*.csv",
+    "recursive":     false,
+    "includeHidden": false
+  }
+}
 ```
 
-Output: `{ entries: [{ name, path, isFile, isDirectory, size, mtime }, ...], count }`.
+`pattern` is a simple `*` / `?` glob on the basename.
+
+Output: `{ entries: [{ name, path, isFile, isDirectory, size, mtime }, ...], count }`. `primaryOutput: "entries"`.
 
 ### `file.delete`
 
-```yaml
-- action: file.delete
-  inputs:
-    path: "/data/old.txt"
-    recursive: false      # required true to delete a non-empty dir
-    missingOk: false      # don't throw on ENOENT if true
+```json
+{
+  "action": "file.delete",
+  "inputs": {
+    "path":      "/data/old.txt",
+    "recursive": false,
+    "missingOk": false
+  }
+}
 ```
 
-Output: `{ path, deleted: <boolean> }`.
+`recursive: true` is required to remove a non-empty directory. `missingOk: true` returns `{ deleted: false }` instead of throwing on ENOENT.
+
+Output: `{ path, deleted }`. `primaryOutput: "deleted"`.
 
 ### `file.stat`
 
 Never throws on ENOENT — returns `exists: false` instead. Useful as an `executeIf:` gate.
 
-```yaml
-- name: check
-  action: file.stat
-  inputs: { path: "/data/in.csv" }
-- name: process
-  action: csv.read
-  executeIf: "${nodes.check.output.exists}"
-  inputs: { path: "/data/in.csv" }
+```json
+{
+  "name": "check",
+  "action": "file.stat",
+  "inputs": { "path": "/data/in.csv" }
+}
+```
+
+```json
+{
+  "name": "process",
+  "action": "csv.read",
+  "executeIf": "${nodes.check.output.exists}",
+  "inputs": { "path": "/data/in.csv" }
+}
 ```
 
 Output: `{ path, exists, isFile?, isDirectory?, size?, mtime? }`.
@@ -355,38 +443,52 @@ Output: `{ path, exists, isFile?, isDirectory?, size?, mtime? }`.
 
 Parse a CSV file (`path:`) or inline string (`text:`).
 
-```yaml
-- action: csv.read
-  inputs:
-    path: "/data/orders.csv"
-    delimiter: ","          # default ","
-    headers: true           # default true → array of objects keyed by header
-    skipEmpty: true
-    cast: true              # auto-cast numbers / booleans (default true)
+```json
+{
+  "action": "csv.read",
+  "inputs": {
+    "path":      "/data/orders.csv",
+    "delimiter": ",",
+    "headers":   true,
+    "skipEmpty": true,
+    "cast":      true
+  }
+}
 ```
 
-With `headers: false`, rows come back as arrays.
+With `headers: true` (default), rows come back as objects keyed by header. With `headers: false`, rows are arrays.
 
-Output: `{ path?, rows, rowCount, columns }`.
+Output: `{ path?, rows, rowCount, columns }`. `primaryOutput: "rows"`.
 
 ### `csv.write`
 
-Serialize rows to CSV. Either write to disk or return the rendered text.
+Write a 2D array of values to disk. The first row is treated as the column headers; the rest are data rows. `data` is intentionally a typeless single-line input — you wire it to a 2D array built upstream by a `transform` node.
 
-```yaml
-- action: csv.write
-  inputs:
-    path: "/data/out.csv"          # omit to return text instead
-    rows:                          # objects (auto-headers from keys) OR arrays
-      - { id: 1, name: Alice }
-      - { id: 2, name: Bob }
-    headers: ["id", "name"]        # explicit column order (optional)
-    delimiter: ","
-    header: true                   # emit header row (default true)
-    mkdir: true                    # create parent dirs
+```json
+{
+  "action": "csv.write",
+  "inputs": {
+    "path":      "/data/out.csv",
+    "data":      "${matrix}",
+    "delimiter": ",",
+    "mkdir":     true
+  }
+}
 ```
 
-Output: `{ path?, text?, rowCount }`.
+`${matrix}` should resolve to:
+
+```js
+[
+  ["id", "name"],     // headers
+  [1,    "Alice"],
+  [2,    "Bob"]
+]
+```
+
+Omit `path` to get the rendered text back on `output.text` instead of writing.
+
+Output: `{ path?, text?, rowCount }`. `primaryOutput: "path"`.
 
 ---
 
@@ -396,79 +498,91 @@ Backed by [exceljs](https://github.com/exceljs/exceljs).
 
 ### `excel.read`
 
-```yaml
-- action: excel.read
-  inputs:
-    path: "/data/report.xlsx"
-    sheet: "Orders"           # optional; default = first sheet
-    headers: true             # use first row as keys (default true)
-    allSheets: false          # true returns sheets[] for every worksheet
+```json
+{
+  "action": "excel.read",
+  "inputs": {
+    "path":      "/data/report.xlsx",
+    "sheet":     "Orders",
+    "headers":   true,
+    "allSheets": false
+  }
+}
 ```
 
 Single-sheet output: `{ path, sheet, columns, rows, rowCount }`.
-Multi-sheet output: `{ path, sheets: [{ sheet, columns, rows, rowCount }, ...] }`.
+Multi-sheet output (with `allSheets: true`): `{ path, sheets: [{ sheet, columns, rows, rowCount }, ...] }`.
 
-Cell values are normalized — formulas become their resolved `result`, hyperlinks become their text, dates become ISO strings.
+Cell values are normalised — formulas become their resolved `result`, hyperlinks become their text, dates become ISO strings.
+
+`primaryOutput: "rows"`.
 
 ### `excel.write`
 
-Single-sheet:
+Same `data` shape as `csv.write` — a 2D array, headers first row.
 
-```yaml
-- action: excel.write
-  inputs:
-    path: "/data/out.xlsx"
-    sheet: "People"             # default "Sheet1"
-    rows: "${nodes.csv-read.output.rows}"
-    headers: ["name", "age"]    # optional explicit order
-    mkdir: true
+```json
+{
+  "action": "excel.write",
+  "inputs": {
+    "path":  "/data/out.xlsx",
+    "sheet": "People",
+    "data":  "${matrix}",
+    "mkdir": true
+  }
+}
 ```
 
-Multi-sheet:
+The first row gets bolded automatically. The plugin writes one sheet per call; if you need multiple sheets, run several `excel.write` nodes (or build a custom plugin).
 
-```yaml
-- action: excel.write
-  inputs:
-    path: "/data/out.xlsx"
-    sheets:
-      - name: People
-        rows: [{ name: Alice, age: 30 }, { name: Bob, age: 25 }]
-      - name: Cities
-        headers: ["city", "count"]
-        rows:
-          - { city: Berlin, count: 1 }
-          - { city: Paris,  count: 1 }
-```
-
-Object rows automatically produce a bolded header row inferred from keys (union, first-seen order). Array rows pass through as-is with no header.
-
-Output: `{ path, sheets: [{ name, rowCount }, ...] }`.
+Output: `{ path, sheet, rowCount }`. `primaryOutput: "path"`.
 
 ---
 
 ## Adding your own plugin
 
-Create a new file in `backend/src/plugins/builtin/`. Default-export an object with `name`, `description`, optional `inputSchema`/`outputSchema` (JSON Schema, validated by ajv), and `async execute(input, ctx)`:
+Create a new file in `backend/src/plugins/builtin/`. Default-export an object with `name`, `description`, optional `inputSchema`/`outputSchema` (JSON Schema, validated by ajv), `primaryOutput` (the key on the output object that `outputVar` will copy into ctx), and `async execute(input, ctx)`:
 
 ```js
 // backend/src/plugins/builtin/uppercase.js
 export default {
   name: "uppercase",
   description: "Returns its input string in uppercase.",
+
   inputSchema: {
     type: "object",
     required: ["text"],
-    properties: { text: { type: "string" } },
+    properties: { text: { type: "string", title: "Text" } },
   },
+
+  primaryOutput: "text",
+
   outputSchema: {
     type: "object",
     required: ["text"],
     properties: { text: { type: "string" } },
   },
-  async execute({ text }) {
+
+  async execute({ text }, ctx) {
     return { text: text.toUpperCase() };
   },
 };
 ```
 
-Restart the worker (or `npm run dev` will pick it up via `--watch`). The plugin shows up in `GET /plugins`, in the YAML editor's `action:` autocomplete, and in the AI assistant's system prompt automatically.
+Restart the worker (or `npm run dev` will pick it up via `--watch`). The plugin shows up in `GET /plugins`, in the canvas's left palette, and in the AI assistant's system prompt automatically. The property panel renders inputs from `inputSchema` (with `title`, `description`, and `format: "textarea"` honoured), and the **Returns** panel surfaces `outputSchema` so flow authors can see what `${nodes.<name>.output.<field>}` will give them.
+
+### Schema → editor mapping cheat-sheet
+
+| Schema property | Property panel widget |
+|-----------------|-----------------------|
+| `enum: [...]` | select |
+| `type: "boolean"` | toggle |
+| `type: "integer"` / `"number"` | numeric input |
+| `type: "array", items.type: "string"` | string list |
+| `type: "array", items.type: "object", items.properties: {...}` | table |
+| `type: "string", format: "textarea"` | multi-line textarea |
+| `type: "object"` (or unsupported types) | JSON textarea (parsed on commit) |
+| no `type` declared | plain text input — used for `${var}` references where the engine resolves to whatever shape the plugin needs |
+| anything else | text input |
+
+Use no-type for fields like `params` / `data` / `payload` where the user types a `${var}` reference and the engine resolves it before the plugin sees it.

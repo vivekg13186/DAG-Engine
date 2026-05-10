@@ -58,6 +58,14 @@ Each workflow is defined using a simple YAML-based DSL, can be visually designed
 
 ---
 
+## News
+
+### 10 May 2026
+- move application from code/yaml based editing to visual editing
+- YAML to JSON since this align more with javascript
+- used node feelin libray for expression language
+
+
 ## License
 
 Personal project — can be adapted or reused with attribution.

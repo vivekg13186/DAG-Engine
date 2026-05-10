@@ -27,7 +27,8 @@ cd backend
 cp .env.example .env
 # edit .env if needed — the defaults match the docker compose
 npm install
-npm run migrate     # applies SQL migrations (graphs, executions, inputs column)
+npm run migrate     # applies SQL migrations (graphs, archived_graphs,
+                    # executions, configs, triggers)
 npm run dev         # starts the API on :3000 + spins up an in-process worker
 ```
 
@@ -43,28 +44,32 @@ npm run dev         # http://localhost:5173 (proxies /api and /ws to :3000)
 
 ### 4. Configure optional features
 
-These all live in `backend/.env` — restart the backend after any change.
+Most credentials live in **Configurations** now (Home page → Configurations table) rather than `.env` — that keeps secrets encrypted at rest and reusable across nodes. The few env-only knobs:
 
 | Feature | Required env vars |
 |---------|------------------|
-| AI assistant ("Ask AI" button) | `ANTHROPIC_API_KEY` *or* `OPENAI_API_KEY`, optional `AI_MODEL` / `AI_BASE_URL` / `AI_PROVIDER` |
-| Email plugin | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` (or `SMTP_HOST=json` for dry-run) |
+| AI assistant ("Prompt" tab) | `ANTHROPIC_API_KEY` *or* `OPENAI_API_KEY`, optional `AI_MODEL` / `AI_BASE_URL` / `AI_PROVIDER` |
+| Configuration encryption | `CONFIG_SECRET=<long-random-string>` (a built-in dev key is used when unset; never ship to prod that way) |
 | File / CSV / Excel sandbox | `FILE_ROOT=/path/to/sandbox` (recommended in any shared deployment) |
 
-The full list of variables is documented in `backend/.env.example`.
+The full list of variables is documented in `backend/.env.example`. The legacy `SMTP_*` vars are still read for fallback but the recommended flow is to create a `mail.smtp` configuration and reference it by name from `email.send`.
 
 ### 5. Try it out
 
-Open `http://localhost:5173`, click **+ New** to create an empty flow, or open one of the samples:
+Open `http://localhost:5173`. The Home page lists three things: **Workflows**, **Triggers**, **Configurations**. Click **+ New flow** to start designing on the canvas.
+
+Sample workflows ship as JSON under `backend/samples/`:
 
 ```bash
-# Anything in backend/samples/ can be pasted into the editor:
 ls backend/samples/
-# → batch.yaml              email-notification.yaml  parallel-with-retry.yaml  spec-form.yaml
-#   csv-to-excel.yaml       hello-world.yaml         sql-pipeline.yaml         web-scrape.yaml
+# → batch.json              email-notification.json   parallel-with-retry.json
+#   csv-to-excel.json       hello-world.json          sql-pipeline.json
+#   web-scrape.json         spec-form.json
 ```
 
-Click **Validate**, then **Save**, then **Run** (the dialog lets you pass a JSON input). The execution opens as its own tab with the graph view colored by per-node status.
+Use the toolbar's **Import** button (upload icon) to load one. Click **Save** to persist, **Run** (▶) to execute with optional JSON input. The execution opens in the read-only Instance Viewer with the graph coloured by per-node status.
+
+To make a workflow run on its own schedule, create a `schedule` trigger from the Triggers table. To send an email or publish MQTT, first create a `mail.smtp` / `mqtt` configuration, then reference its name from the corresponding plugin node.
 
 ### Stopping things
 
@@ -96,7 +101,7 @@ docker compose --profile full up -d --build
 
 That brings up four containers: `dag_postgres`, `dag_redis`, `dag_backend` (port 3000), `dag_frontend` (port 5173 → nginx).
 
-To pass env vars (AI keys, SMTP creds, FILE_ROOT, etc.) to the backend container, either:
+To pass env vars (AI keys, `CONFIG_SECRET`, `FILE_ROOT`, etc.) to the backend container, either:
 
 - Add them under the `backend` service's `environment:` block in `docker-compose.yml`, or
 - Create a `.env` file at the repo root (compose auto-loads it) and reference vars with `${VAR_NAME}` in the compose file.
@@ -125,5 +130,7 @@ The frontend Dockerfile is a two-stage build: Node 20 to compile, nginx 1.27 to 
 - **`npm run migrate` fails with ECONNREFUSED** — Postgres isn't up yet. `docker compose up -d postgres` and wait ~2 s, or check `docker compose logs postgres`.
 - **AI button doesn't appear in the UI** — the frontend hides it when `GET /ai/status` reports `configured: false`. Visit `http://localhost:3000/ai/status` to see what the backend received (it shows a masked key preview and any warnings).
 - **401 from Anthropic / OpenAI despite a set key** — see the warnings field of `/ai/status`. Common causes: trailing whitespace in `.env`, wrong key prefix (`sk-` vs `sk-ant-`), copy-paste truncation.
+- **`email.send` / `mqtt.publish` / `sql.*` errors with `config "<name>" not found`** — the named configuration doesn't exist yet, or has a different name than what you typed in the node. Open Home → Configurations and verify the row.
 - **File plugins refuse my path** — `FILE_ROOT` is set; the path tries to escape. Either keep paths inside the root or unset `FILE_ROOT` for unrestricted access (only recommended for local dev).
 - **Graph view shows nodes as "pending" forever** — open Dev Tools → Network and confirm `GET /executions/:id` returns a `context.nodes` object. If it doesn't, the worker hasn't finished yet — wait or click the refresh button.
+- **CONFIG_SECRET dev-fallback warning at startup** — production deployments must set `CONFIG_SECRET` to a long random string. Without it, secrets are encrypted with a built-in fallback key, which is portable but obviously not secret.
