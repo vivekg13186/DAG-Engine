@@ -98,6 +98,22 @@ export const Configs = {
   remove: (id) => api.delete(`/configs/${id}`).then(r => r.data),
 };
 
+export const Memory = {
+  // List rows. Filters: { scope, scopeId, namespace, prefix, limit }.
+  list:    (params = {}) => api.get("/memory", { params }).then(r => r.data),
+  get:     (id) => api.get(`/memory/${id}`).then(r => r.data),
+  // Upsert a KV row. payload: { scope, scopeId, namespace, key, value }.
+  set:     (payload) => api.post("/memory", payload).then(r => r.data),
+  // Remove by row id (UI-friendly) or by composite key (programmatic).
+  remove:  (id) => api.delete(`/memory/${id}`).then(r => r.data),
+  removeKey: (payload) => api.delete("/memory", { data: payload }).then(r => r.data),
+  // Conversation history.
+  loadHistory:  ({ conversationId, scope = "workflow", scopeId, limit = 20 }) =>
+    api.post("/memory/history/load", { conversationId, scope, scopeId, limit }).then(r => r.data),
+  clearHistory: ({ conversationId, scope = "workflow", scopeId }) =>
+    api.post("/memory/history/clear", { conversationId, scope, scopeId }).then(r => r.data),
+};
+
 export const Agents = {
   list:   () => api.get("/agents").then(r => r.data),
   get:    (id) => api.get(`/agents/${id}`).then(r => r.data),

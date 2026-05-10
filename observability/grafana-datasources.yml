@@ -1,0 +1,56 @@
+# Grafana datasource provisioning.
+#
+# Two sources:
+#   • Tempo    — per-trace debugging (workflow.run, node.execute spans)
+#   • Postgres — Daisy's own state (executions / node_states / agents),
+#                used by the overview dashboard for aggregate metrics
+#                without needing a Prometheus stack
+#
+# `tracesToLogs` ties the two together: clicking "logs for this span" in
+# Tempo runs a Postgres query for rows whose context._otel.trace_id
+# matches. The worker stamps that field at end-of-run.
+
+apiVersion: 1
+datasources:
+  - name: Tempo
+    type: tempo
+    uid: tempo
+    access: proxy
+    url: http://tempo:3200
+    isDefault: true
+    jsonData:
+      tracesToLogsV2:
+        datasourceUid: postgres
+        tags:
+          - key: trace_id
+            value: trace_id
+        spanStartTimeShift: -5m
+        spanEndTimeShift: 5m
+      tracesToProfiles:
+        datasourceUid: postgres
+        tags:
+          - key: workflow.id
+            value: graph_id
+
+  - name: Postgres
+    type: postgres
+    uid: postgres
+    access: proxy
+    # `host.docker.internal` works on macOS/Windows out-of-the-box and
+    # on Linux via the `extra_hosts: host-gateway` mapping in
+    # docker-compose.yml. Hardcoded because Grafana's env-var
+    # substitution in provisioning files is fussy with the URL field.
+    url: host.docker.internal:5432
+    # User / password / database — easiest to override here directly.
+    # Defaults match the bundled docker-compose.yml's Postgres
+    # (dag/dag@dag_engine). If you're using native Postgres with
+    # OS-user auth, set `user` to your mac username, leave password
+    # blank, and keep database as `dag_engine`.
+    user: dag
+    secureJsonData:
+      password: dag
+    jsonData:
+      database: dag_engine
+      sslmode: disable
+      postgresVersion: 1500
+      timescaledb: false

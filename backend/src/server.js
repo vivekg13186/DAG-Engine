@@ -1,3 +1,8 @@
+// MUST stay at the top — telemetry.js starts the OpenTelemetry SDK on
+// import, and the auto-instrumentations only hook modules loaded AFTER
+// sdk.start(). Anything imported above this line wouldn't be traced.
+import "./telemetry.js";
+
 import http from "node:http";
 import express from "express";
 import cors from "cors";
@@ -14,6 +19,7 @@ import triggersRouter from "./api/triggers.js";
 import webhooksRouter from "./api/webhooks.js";
 import configsRouter from "./api/configs.js";
 import agentsRouter  from "./api/agents.js";
+import memoryRouter  from "./api/memory.js";
 import { attachWss } from "./ws/broadcast.js";
 
 await loadBuiltins();
@@ -32,6 +38,7 @@ app.use("/ai", aiRouter);
 app.use("/triggers", triggersRouter);
 app.use("/configs",  configsRouter);
 app.use("/agents",   agentsRouter);
+app.use("/memory",   memoryRouter);
 // Public webhook endpoint — bypasses /api proxy in dev because the path is
 // absolute (/webhooks/<id>). External services hit it directly.
 app.use("/webhooks", webhooksRouter);

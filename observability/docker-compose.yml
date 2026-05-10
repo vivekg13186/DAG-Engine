@@ -1,0 +1,58 @@
+# Observability stack for Daisy-DAG.
+#
+# Grafana (UI) + Tempo (trace storage). Postgres is reached over
+# host.docker.internal so Grafana can also query the engine's executions
+# / node_states tables directly — that powers the Postgres-driven
+# overview dashboard alongside the trace browser.
+#
+# Bring up with:
+#     docker compose -f observability/docker-compose.yml up -d
+#
+# Then point Daisy at Tempo:
+#     export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+#     export OTEL_SERVICE_NAME=daisy-dag
+# and restart the API + worker.
+#
+# Open Grafana:  http://localhost:3001  (admin / no-auth)
+
+services:
+  tempo:
+    image: grafana/tempo:latest
+    container_name: daisy-tempo
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./tempo.yaml:/etc/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    ports:
+      - "3200:3200"   # Tempo HTTP API (Grafana queries this)
+      - "4318:4318"   # OTLP/HTTP receiver — Daisy pushes here
+      - "4317:4317"   # OTLP/gRPC receiver (optional, future-proof)
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: daisy-grafana
+    depends_on: [tempo]
+    environment:
+      # Anonymous admin so you don't have to log in for local dev.
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+      # Enables the TraceQL editor + new query builder.
+      - GF_FEATURE_TOGGLES_ENABLE=traceqlEditor
+    volumes:
+      - ./grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./grafana-dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+      - ./dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3001:3000"   # Daisy's API uses 3000 — keep Grafana on 3001
+    extra_hosts:
+      # So Grafana inside this container can reach Postgres running on
+      # the host (whether you started Postgres via the repo's main
+      # docker-compose or via a host install). On Linux this maps to
+      # the host gateway; on macOS/Windows Docker provides it natively.
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  tempo-data:
+  grafana-data:

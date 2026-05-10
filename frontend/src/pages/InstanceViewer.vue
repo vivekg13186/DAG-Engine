@@ -71,6 +71,42 @@
                         <InputsTable v-else :rows="inputRows" />
                     </q-expansion-item>
 
+                    <!-- Live output panel — populated from WS node:stream
+                         events. Shows up while the run is active or as
+                         long as any node has streamed something. Wipes
+                         clean on a fresh execution load. -->
+                    <q-expansion-item
+                        v-if="hasStreamOutput"
+                        dense dense-toggle default-opened
+                        label="Live output"
+                        header-class="app-section-header"
+                    >
+                        <div class="q-pa-md column q-gutter-md">
+                            <div
+                                v-for="(buf, name) in streamBuffers" :key="name"
+                                class="stream-card"
+                            >
+                                <div class="row items-center q-mb-xs">
+                                    <code class="recovery-name">{{ name }}</code>
+                                    <q-space />
+                                    <span class="text-caption" style="color: var(--text-muted);">
+                                        {{ buf.text.length.toLocaleString() }} char(s)
+                                    </span>
+                                </div>
+                                <pre class="stream-text">{{ buf.text }}<span v-if="liveStatuses[name] === 'running'" class="cursor-blink">▍</span></pre>
+                                <div v-if="buf.logs.length" class="stream-logs">
+                                    <div
+                                        v-for="(l, i) in buf.logs" :key="i"
+                                        :class="['stream-log', `stream-log-${l.level}`]"
+                                    >
+                                        <span class="stream-log-level">{{ l.level }}</span>
+                                        <span>{{ l.message }}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </q-expansion-item>
+
                     <!-- Awaiting-response panel — one card per waiting
                          `user` node. Each card shows the prompt and a
                          JSON form; submitting POSTs the response and
@@ -249,7 +285,7 @@
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useQuasar } from "quasar";
-import { Graphs, Executions } from "../api/client";
+import { Graphs, Executions, openLiveExecution } from "../api/client";
 import { parseDslToModel } from "../components/flow/flowModel.js";
 
 import GraphView        from "../components/GraphView.vue";
@@ -280,6 +316,15 @@ const editJsonErr = ref("");
 // in-progress JSON text the operator is typing in the textarea.
 const respondDrafts = reactive({});
 const respondErrs   = reactive({});
+
+// Live-output buffers populated from WS `node:stream` events. Keyed by
+// node name; each entry is { text: string, logs: Array<{level,message}> }.
+// In-memory only — wiped when the route changes / page reloads.
+const streamBuffers = reactive({});
+// Mirrors live `node:status` events so we can render a blinking cursor
+// next to nodes that are still emitting.
+const liveStatuses  = reactive({});
+const hasStreamOutput = computed(() => Object.keys(streamBuffers).length > 0);
 
 // ── Derived ────────────────────────────────────────────────────────────────
 const status = computed(() => execution.value?.status || "");
@@ -418,9 +463,49 @@ function synthFromCtx(exec) {
     };
 }
 
+// ── Live WebSocket subscription ────────────────────────────────────────────
+//
+// The worker broadcasts `node:status` and `node:stream` for the run
+// being processed; we subscribe per-execution and route stream chunks
+// into per-node buffers. The polling loop also still runs — WS gives
+// us instant token updates while the polled GET refreshes the
+// authoritative status / node_states snapshot.
+let liveWs = null;
+function openLive() {
+    closeLive();
+    if (!route.params.id) return;
+    liveWs = openLiveExecution(route.params.id, (msg) => {
+        if (!msg || !msg.node) return;
+        if (msg.type === "node:status") {
+            if (msg.status) liveStatuses[msg.node] = msg.status;
+            return;
+        }
+        if (msg.type === "node:stream") {
+            const buf = streamBuffers[msg.node] ||= { text: "", logs: [] };
+            if (msg.kind === "text" && msg.chunk) {
+                buf.text += msg.chunk;
+            } else if (msg.kind === "log") {
+                buf.logs.push({
+                    level:   msg.level || "info",
+                    message: msg.message || "",
+                });
+            } else if (msg.kind === "data" && msg.payload != null) {
+                // Record as a log line so the user still sees it; if you
+                // want a structured renderer, branch here.
+                buf.logs.push({ level: "info", message: JSON.stringify(msg.payload) });
+            }
+        }
+    });
+}
+function closeLive() {
+    try { liveWs?.close?.(); } catch { /* ignore */ }
+    liveWs = null;
+}
+
 // ── Lifecycle ──────────────────────────────────────────────────────────────
 onMounted(async () => {
     await loadExecution();
+    openLive();
     loading.value = false;
 });
 
@@ -440,7 +525,7 @@ watch(status, (s) => {
     else stopPolling();
 }, { immediate: false });
 
-onBeforeUnmount(stopPolling);
+onBeforeUnmount(() => { stopPolling(); closeLive(); });
 
 async function refresh() {
     if (refreshing.value) return;
@@ -614,6 +699,61 @@ function errMsg(e) { return e?.response?.data?.message || e?.message || "unknown
     max-width: 92vw;
     background: var(--surface);
 }
+
+/* Live-output cards — one per node that has streamed anything */
+.stream-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--success);
+    border-radius: 6px;
+    padding: 12px 14px;
+}
+.stream-text {
+    margin: 0;
+    padding: 8px 10px;
+    background: rgba(0,0,0,0.06);
+    border-radius: 4px;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 12.5px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 360px;
+    overflow-y: auto;
+}
+.cursor-blink {
+    display: inline-block;
+    color: var(--primary);
+    animation: cursor-blink 1s steps(2, start) infinite;
+}
+@keyframes cursor-blink {
+    to { visibility: hidden; }
+}
+.stream-logs {
+    margin-top: 8px;
+    border-top: 1px dashed var(--border);
+    padding-top: 6px;
+    font-size: 11.5px;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    max-height: 160px;
+    overflow-y: auto;
+}
+.stream-log {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    padding: 1px 0;
+}
+.stream-log-level {
+    text-transform: uppercase;
+    font-size: 10px;
+    padding: 0 5px;
+    border-radius: 3px;
+    background: rgba(0,0,0,0.06);
+    color: var(--text-muted);
+}
+.stream-log-warn  .stream-log-level { background: var(--warning-soft); color: var(--warning); }
+.stream-log-error .stream-log-level { background: var(--danger-soft);  color: var(--danger); }
 
 /* Awaiting-response cards — one per WAITING user node */
 .awaiting-card {

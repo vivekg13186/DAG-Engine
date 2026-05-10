@@ -1,0 +1,175 @@
+{
+  "uid": "daisy-overview",
+  "title": "Daisy-DAG Overview",
+  "tags": ["daisy", "overview"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": { "list": [] },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Executions per minute",
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "fieldConfig": {
+        "defaults": { "custom": { "drawStyle": "bars", "lineWidth": 1, "fillOpacity": 60 } }
+      },
+      "targets": [{
+        "refId": "A",
+        "format": "time_series",
+        "rawSql": "SELECT date_trunc('minute', created_at) AS time, status AS metric, count(*) AS value FROM executions WHERE $__timeFilter(created_at) GROUP BY 1, 2 ORDER BY 1"
+      }]
+    },
+
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Success rate (window)",
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red",    "value": null },
+              { "color": "yellow", "value": 0.9 },
+              { "color": "green",  "value": 0.99 }
+            ]
+          }
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "graphMode": "area" },
+      "targets": [{
+        "refId": "A",
+        "format": "table",
+        "rawSql": "SELECT (count(*) FILTER (WHERE status = 'success'))::float / NULLIF(count(*), 0) AS success_rate FROM executions WHERE $__timeFilter(created_at)"
+      }]
+    },
+
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "In-flight",
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" },
+      "targets": [{
+        "refId": "A",
+        "format": "table",
+        "rawSql": "SELECT count(*) AS running FROM executions WHERE status IN ('queued','running','waiting')"
+      }]
+    },
+
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Total runs (window)",
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "gridPos": { "x": 12, "y": 4, "w": 6, "h": 4 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{
+        "refId": "A",
+        "format": "table",
+        "rawSql": "SELECT count(*) AS runs FROM executions WHERE $__timeFilter(created_at)"
+      }]
+    },
+
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Failed (window)",
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "gridPos": { "x": 18, "y": 4, "w": 6, "h": 4 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "red",   "value": 1 }
+          ] }
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [{
+        "refId": "A",
+        "format": "table",
+        "rawSql": "SELECT count(*) AS failures FROM executions WHERE status = 'failed' AND $__timeFilter(created_at)"
+      }]
+    },
+
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Execution duration (p50 / p95 / p99)",
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "fieldConfig": { "defaults": { "unit": "ms" } },
+      "targets": [{
+        "refId": "A",
+        "format": "time_series",
+        "rawSql": "SELECT date_trunc('minute', finished_at) AS time, percentile_cont(0.50) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (finished_at - started_at))*1000) AS p50, percentile_cont(0.95) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (finished_at - started_at))*1000) AS p95, percentile_cont(0.99) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (finished_at - started_at))*1000) AS p99 FROM executions WHERE finished_at IS NOT NULL AND started_at IS NOT NULL AND $__timeFilter(finished_at) GROUP BY 1 ORDER BY 1"
+      }]
+    },
+
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Top failing nodes",
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "targets": [{
+        "refId": "A",
+        "format": "table",
+        "rawSql": "SELECT node_name AS \"Node\", count(*) AS \"Failures\", max(finished_at) AS \"Last failure\" FROM node_states WHERE status = 'failed' AND $__timeFilter(updated_at) GROUP BY node_name ORDER BY count(*) DESC LIMIT 15"
+      }]
+    },
+
+    {
+      "id": 8,
+      "type": "table",
+      "title": "Recent failed executions (click trace_id → Tempo)",
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "gridPos": { "x": 0, "y": 16, "w": 24, "h": 8 },
+      "targets": [{
+        "refId": "A",
+        "format": "table",
+        "rawSql": "SELECT e.id AS \"Execution\", g.name AS \"Workflow\", e.started_at AS \"Started\", EXTRACT(EPOCH FROM (e.finished_at - e.started_at))*1000 AS \"Duration (ms)\", e.error AS \"Error\", e.context->'_otel'->>'trace_id' AS \"trace_id\" FROM executions e LEFT JOIN graphs g ON g.id = e.graph_id WHERE e.status = 'failed' AND $__timeFilter(e.created_at) ORDER BY e.created_at DESC LIMIT 50"
+      }],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [{
+          "matcher": { "id": "byName", "options": "trace_id" },
+          "properties": [{
+            "id": "links",
+            "value": [{
+              "title": "View trace in Tempo",
+              "url": "/explore?left=%7B%22datasource%22:%22tempo%22,%22queries%22:%5B%7B%22refId%22:%22A%22,%22queryType%22:%22traceql%22,%22query%22:%22${__value.raw}%22%7D%5D%7D",
+              "targetBlank": true
+            }]
+          }]
+        }]
+      }
+    },
+
+    {
+      "id": 9,
+      "type": "table",
+      "title": "Token usage by node (LLM/agent calls)",
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "gridPos": { "x": 0, "y": 24, "w": 24, "h": 8 },
+      "targets": [{
+        "refId": "A",
+        "format": "table",
+        "rawSql": "SELECT node_name AS \"Node\", count(*) AS \"Calls\", sum((output->'usage'->>'inputTokens')::int)  AS \"Input tokens\", sum((output->'usage'->>'outputTokens')::int) AS \"Output tokens\", sum((output->'usage'->>'inputTokens')::int + (output->'usage'->>'outputTokens')::int) AS \"Total tokens\" FROM node_states WHERE output ? 'usage' AND $__timeFilter(finished_at) GROUP BY node_name ORDER BY \"Total tokens\" DESC NULLS LAST LIMIT 20"
+      }]
+    }
+  ]
+}

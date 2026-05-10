@@ -1,7 +1,10 @@
 import { EventEmitter } from "node:events";
+import { trace, SpanStatusCode } from "@opentelemetry/api";
 import { buildDag } from "./scheduler.js";
 import { resolve, evalCondition } from "../dsl/expression.js";
 import { registry } from "../plugins/registry.js";
+
+const tracer = trace.getTracer("daisy-dag.engine");
 
 /** Node statuses surfaced through events + persistence. */
 export const NodeStatus = Object.freeze({
@@ -193,7 +196,44 @@ export async function executeDag(parsed, opts = {}) {
     }
   }
 
+  // Each node's execution lives inside a `node.execute` child span of
+  // the active workflow.run span. The span's status mirrors the node's
+  // outcome at end-of-runOne (success / skipped → OK; failed → ERROR).
   async function runOne(node) {
+    return tracer.startActiveSpan(
+      "node.execute",
+      {
+        attributes: {
+          "node.name":   node.name,
+          "node.action": node.action,
+          "execution.id": executionId || "",
+        },
+      },
+      async (span) => {
+        try {
+          await runOneInner(node);
+          const r = nodeResults[node.name];
+          span.setAttribute("node.status",   r?.status   || "unknown");
+          span.setAttribute("node.attempts", r?.attempts || 0);
+          if (r?.status === "failed") {
+            span.setStatus({ code: SpanStatusCode.ERROR, message: r.error || "node failed" });
+          } else {
+            span.setStatus({ code: SpanStatusCode.OK });
+          }
+        } catch (e) {
+          // runOneInner is supposed to swallow errors via recordOutcome;
+          // anything that escapes here is an engine bug. Record + rethrow.
+          span.recordException(e);
+          span.setStatus({ code: SpanStatusCode.ERROR, message: e?.message || String(e) });
+          throw e;
+        } finally {
+          span.end();
+        }
+      },
+    );
+  }
+
+  async function runOneInner(node) {
     // 0. Skip-cascade. If any parent ended up SKIPPED, this node inherits
     //    that status — the "all_success" semantic familiar from
     //    Airflow / Prefect: gating one branch short-circuits the whole
@@ -277,6 +317,30 @@ export async function executeDag(parsed, opts = {}) {
       })).catch(() => { /* see persistNodeState contract */ });
     }
 
+    // Streaming hooks — plugins use `hooks.stream.*` to emit incremental
+    // updates that the worker forwards to subscribed WebSocket clients.
+    // Plugins that don't touch hooks behave exactly as before.
+    //
+    // Three flavours of stream message:
+    //   • text  — short string deltas (LLM token-by-token, agent chatter)
+    //   • log   — leveled diagnostic message (level: debug|info|warn|error)
+    //   • data  — arbitrary structured payload (per-row SQL, partial JSON)
+    //
+    // Each emit fans out as a `node:stream` event with the node name +
+    // kind + payload. The frontend subscribes via the existing WebSocket
+    // and renders a Live-output panel.
+    const hooks = {
+      stream: {
+        text: (chunk) => emit("node:stream", { node: node.name, kind: "text", chunk: String(chunk ?? "") }),
+        log:  (level, message) => emit("node:stream", {
+          node: node.name, kind: "log",
+          level: ["debug", "info", "warn", "error"].includes(level) ? level : "info",
+          message: String(message ?? ""),
+        }),
+        data: (payload) => emit("node:stream", { node: node.name, kind: "data", payload }),
+      },
+    };
+
     const attemptOnce = async (input) => {
       const maxRetries = node.retry || 0;
       const delayMs = parseDuration(node.retryDelay) || 0;
@@ -285,7 +349,7 @@ export async function executeDag(parsed, opts = {}) {
       while (attempt <= maxRetries) {
         attempt++;
         try {
-          const out = await registry.invoke(node.action, input, ctx);
+          const out = await registry.invoke(node.action, input, ctx, hooks);
           return { ok: true, output: out, attempts: attempt };
         } catch (e) {
           lastErr = e;

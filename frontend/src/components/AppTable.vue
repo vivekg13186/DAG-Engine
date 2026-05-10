@@ -39,6 +39,27 @@
       </q-td>
     </template>
 
+    <!-- Id column — shows the row's UUID truncated to 8 chars with a
+         copy-to-clipboard button. The full id is in the title attribute
+         so a hover tooltip exposes it for inspection. Used by the
+         Workflows table on Home so the user can grab a graphId for
+         workflow.fire / API calls without leaving the page. -->
+    <template v-slot:body-cell-id="props">
+      <q-td :props="props" class="cell-id">
+        <code :title="props.row.id" class="cell-id-text">
+          {{ (props.row.id || "").slice(0, 8) }}…
+        </code>
+        <q-btn
+          flat dense round size="xs"
+          icon="content_copy"
+          class="cell-id-copy"
+          @click.stop="onCopyId(props.row.id)"
+        >
+          <q-tooltip>Copy full id</q-tooltip>
+        </q-btn>
+      </q-td>
+    </template>
+
     <!-- Actions Column -->
     <template v-slot:body-cell-actions="props">
       <q-td :props="props" auto-width>
@@ -68,6 +89,9 @@
 
 <script setup>
 import { computed, ref, watch } from "vue";
+import { useQuasar } from "quasar";
+
+const $q = useQuasar();
 
 const props = defineProps({
   rows: {
@@ -123,7 +147,33 @@ function onDeleteSelected() {
   emit("delete-selected", selected.value);
 }
 
+// Copy the full row id to the clipboard. Wrapped in a try/catch so a
+// permissions-denied (e.g. non-HTTPS in some browsers) doesn't surface
+// as a stack trace; surface it as a notify instead.
+async function onCopyId(id) {
+  if (!id) return;
+  try {
+    await navigator.clipboard.writeText(id);
+    $q.notify({ type: "positive", message: "Id copied", timeout: 1200, position: "bottom" });
+  } catch (e) {
+    $q.notify({ type: "negative", message: `Copy failed: ${e?.message || e}`, position: "bottom" });
+  }
+}
+
 watch(selected, (value) => {
   emit("selection-change", value);
 });
 </script>
+
+<style scoped>
+.cell-id        { white-space: nowrap; }
+.cell-id-text   {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px;
+  background: rgba(0,0,0,0.06);
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: var(--text);
+}
+.cell-id-copy   { margin-left: 4px; }
+</style>

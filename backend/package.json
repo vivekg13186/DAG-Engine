@@ -14,6 +14,12 @@
     "test:coverage": "node --test --test-concurrency=1 --experimental-test-module-mocks --experimental-test-coverage --test-coverage-include='src/plugins/mqtt/**' --test-coverage-include='src/plugins/builtin/mqtt.publish.js' --test-coverage-include='src/triggers/builtin/mqtt.js' test/mqtt.util.test.js test/mqtt.publish.test.js test/mqtt.trigger.test.js"
   },
   "dependencies": {
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/auto-instrumentations-node": "^0.50.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.53.0",
+    "@opentelemetry/resources": "^1.26.0",
+    "@opentelemetry/sdk-node": "^0.53.0",
+    "@opentelemetry/semantic-conventions": "^1.27.0",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
     "bullmq": "^5.12.0",

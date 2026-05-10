@@ -1,5 +1,10 @@
+// MUST stay at the top — see comment in server.js. The auto-instrumentations
+// only hook modules loaded AFTER sdk.start().
+import "./telemetry.js";
+
 import { Worker } from "bullmq";
 import { EventEmitter } from "node:events";
+import { trace, propagation, context, SpanStatusCode } from "@opentelemetry/api";
 import { config } from "./config.js";
 import { QUEUE_NAME, redisConnection } from "./queue/queue.js";
 import { pool } from "./db/pool.js";
@@ -18,6 +23,7 @@ import {
   loadNodeStates,
   reapOrphanedExecutions,
 } from "./engine/nodeStateStore.js";
+import { loadKvForScope } from "./engine/memoryStore.js";
 
 await loadBuiltins();
 await loadTriggerBuiltins();
@@ -31,7 +37,50 @@ startTriggerManager().catch(e => log.error("trigger manager start failed", { err
 // definition stale until it's re-delivered to us as a job.
 reapOrphanedExecutions().catch(e => log.warn("orphan reap failed", { error: e.message }));
 
+const tracer = trace.getTracer("daisy-dag.engine");
+
+/**
+ * Wrap the actual execution work in a `workflow.run` root span. The
+ * trace context attached to the BullMQ job (set by enqueueExecution) is
+ * extracted as the parent so the span links back to whatever HTTP
+ * request originally enqueued the run.
+ *
+ * Every nested operation — pg queries, plugin calls, downstream HTTP /
+ * Redis / fetch — automatically becomes a child span via OTel's active
+ * context propagation.
+ */
 async function processExecution(job) {
+  const parentCtx = job.data?._otel
+    ? propagation.extract(context.active(), job.data._otel)
+    : context.active();
+
+  return await tracer.startActiveSpan(
+    "workflow.run",
+    {
+      attributes: {
+        "workflow.id":       job.data?.graphId || "",
+        "workflow.run_id":   job.data?.executionId || "",
+        "workflow.trigger":  job.data?.trigger || "manual",
+      },
+    },
+    parentCtx,
+    async (span) => {
+      try {
+        const result = await processExecutionBody(job, span);
+        span.setStatus({ code: SpanStatusCode.OK });
+        return result;
+      } catch (e) {
+        span.recordException(e);
+        span.setStatus({ code: SpanStatusCode.ERROR, message: e?.message || String(e) });
+        throw e;
+      } finally {
+        span.end();
+      }
+    },
+  );
+}
+
+async function processExecutionBody(job, span) {
   const { executionId, graphId } = job.data;
 
   // Resume detection: a job that arrives with status='queued' but already
@@ -57,6 +106,7 @@ async function processExecution(job) {
 
   // Prefer the parsed-JSONB cache; fall back to re-parsing the dsl text.
   const parsed = rows[0].parsed || parseDag(rows[0].dsl);
+  span?.setAttribute("workflow.name", parsed?.name || "");
 
   // Pull the user-supplied JSON input that was stashed when the execution row
   // was created. It overlays parsed.data and is exposed as ${data.*} / ${input.*}.
@@ -93,6 +143,30 @@ async function processExecution(job) {
   initialData.config = configsMap;
   initialData.env    = { ...buildConfigEnv(configsMap) };
 
+  // Workflow KV memory — preloaded once per execution so plugins and
+  // expressions can read stored values via ${memory.<key>} without
+  // hitting the DB per call. Stripped from persisted ctx below (same
+  // treatment as ctx.config / ctx.env).
+  initialData.memory = await loadKvForScope({
+    scope: "workflow", scopeId: graphId, namespace: "kv",
+  }).catch((e) => {
+    log.warn("memory load failed; continuing with empty memory", { error: e.message });
+    return {};
+  });
+
+  // Identity so plugins (e.g. memory plugins, the agent's history
+  // helpers) know which workflow they're running under without
+  // poking back at the queue payload.
+  initialData.execution = { id: executionId, graphId };
+
+  // Spawn-chain tracking for workflow.fire. Each fire pushes the parent
+  // graph_id onto this list before enqueueing the child; the child
+  // reads it back here so nested fires keep enforcing the depth + cycle
+  // checks. Underscore-prefixed so it doesn't collide with user data.
+  initialData._ancestors = Array.isArray(job.data?._ancestors)
+    ? job.data._ancestors
+    : [];
+
   // Wire engine events into the WebSocket broadcaster + the JSONL event log.
   // Per-node history is no longer persisted to Postgres — the post-execution
   // summary lives in executions.context.nodes (written below).
@@ -100,6 +174,13 @@ async function processExecution(job) {
   emitter.on("node:status", (evt) => {
     publish({ type: "node:status", executionId, ...evt }).catch(() => {});
     logNodeEvent({ type: "node:status", executionId, graphId, ...evt });
+  });
+  // Streaming chunks emitted by plugins via ctx hooks. Same WS channel
+  // as status events, distinguished by `type`. The frontend's
+  // InstanceViewer routes these into a Live-output buffer per node.
+  emitter.on("node:stream", (evt) => {
+    publish({ type: "node:stream", executionId, ...evt }).catch(() => {});
+    logNodeEvent({ type: "node:stream", executionId, graphId, ...evt });
   });
   emitter.on("execution:start", (evt) => {
     publish({ type: "execution:start", ...evt }).catch(() => {});
@@ -147,7 +228,11 @@ async function processExecution(job) {
   // passwords. Strip them before persisting.
   function redact(ctx) {
     if (!ctx || typeof ctx !== "object") return ctx;
-    const { config, env, ...rest } = ctx;
+    // Strip transient/preloaded engine surfaces. memory + execution are
+    // both rebuilt per run; _ancestors is queue-payload metadata
+    // (workflow.fire's spawn chain) — none of these belong in
+    // executions.context.
+    const { config, env, memory, execution, _ancestors, ...rest } = ctx;
     return rest;
   }
 
@@ -160,11 +245,21 @@ async function processExecution(job) {
         // `input` — that's user-supplied data, leave it alone.
       })) }
     : redact(result.ctx);
+
+  // Stamp the workflow.run span's trace_id onto the persisted context
+  // so the Grafana overview dashboard can deep-link from "executions
+  // table row" → "trace in Tempo". Cheap (one struct lookup); the
+  // worker already has the active span from startActiveSpan above.
+  const otelCtx = trace.getActiveSpan()?.spanContext?.();
+  if (otelCtx?.traceId) {
+    finalContext._otel = { trace_id: otelCtx.traceId, span_id: otelCtx.spanId };
+  }
   await pool.query(
     "UPDATE executions SET status=$2, finished_at=NOW(), context=$3 WHERE id=$1",
     [executionId, result.status, JSON.stringify(finalContext)],
   );
   log.info("execution end", { executionId, status: result.status });
+  span?.setAttribute("workflow.status", result.status);
   return { status: result.status };
 }
 

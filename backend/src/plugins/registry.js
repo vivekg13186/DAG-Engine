@@ -3,7 +3,10 @@ import addFormats from "ajv-formats";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { trace, SpanStatusCode } from "@opentelemetry/api";
 import { log } from "../utils/logger.js";
+
+const tracer = trace.getTracer("daisy-dag.plugins");
 
 const ajv = new Ajv({ allErrors: true, coerceTypes: true, useDefaults: true, strict: false });
 addFormats(ajv);
@@ -41,18 +44,51 @@ class PluginRegistry {
     }));
   }
 
-  async invoke(name, input, ctx) {
-    const p = this.get(name);
-    if (p.validateInput && !p.validateInput(input)) {
-      const errs = p.validateInput.errors.map(e => `${e.instancePath} ${e.message}`).join("; ");
-      throw new Error(`Plugin "${name}" input invalid: ${errs}`);
-    }
-    const output = await p.execute(input, ctx);
-    if (p.validateOutput && !p.validateOutput(output)) {
-      const errs = p.validateOutput.errors.map(e => `${e.instancePath} ${e.message}`).join("; ");
-      throw new Error(`Plugin "${name}" output invalid: ${errs}`);
-    }
-    return output;
+  /**
+   * Invoke a registered plugin.
+   *
+   * Plugins can opt into streaming by accepting a third `hooks` arg:
+   *
+   *     async execute(input, ctx, hooks) {
+   *       hooks?.stream?.text("partial token");
+   *       return { ... };
+   *     }
+   *
+   * Plugins that ignore `hooks` are unaffected — JS varargs are lenient.
+   *
+   * Every invoke is wrapped in a `plugin.<name>` OTel span so external
+   * calls (pg, fetch, redis, etc.) made by the plugin nest cleanly under
+   * its own span. Plugins that want richer observability (e.g. agents
+   * adding an llm.generate child span) can read `trace.getActiveSpan()`
+   * inside `execute` — the span we open here is the parent.
+   */
+  async invoke(name, input, ctx, hooks) {
+    return tracer.startActiveSpan(
+      `plugin.${name}`,
+      { attributes: { "plugin.name": name } },
+      async (span) => {
+        try {
+          const p = this.get(name);
+          if (p.validateInput && !p.validateInput(input)) {
+            const errs = p.validateInput.errors.map(e => `${e.instancePath} ${e.message}`).join("; ");
+            throw new Error(`Plugin "${name}" input invalid: ${errs}`);
+          }
+          const output = await p.execute(input, ctx, hooks);
+          if (p.validateOutput && !p.validateOutput(output)) {
+            const errs = p.validateOutput.errors.map(e => `${e.instancePath} ${e.message}`).join("; ");
+            throw new Error(`Plugin "${name}" output invalid: ${errs}`);
+          }
+          span.setStatus({ code: SpanStatusCode.OK });
+          return output;
+        } catch (e) {
+          span.recordException(e);
+          span.setStatus({ code: SpanStatusCode.ERROR, message: e?.message || String(e) });
+          throw e;
+        } finally {
+          span.end();
+        }
+      },
+    );
   }
 }
 

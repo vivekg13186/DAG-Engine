@@ -58,6 +58,9 @@ Use AI-driven monitoring and recovery mechanisms to automatically detect, diagno
 ### Engine
 - Durable Execution - resume or skip on failure
 - Human in loop - node wait for user to approve
+- Stream support
+- Multi Agent with memory sharing
+- 
 
 
 ### Triggers
@@ -69,7 +72,7 @@ Use AI-driven monitoring and recovery mechanisms to automatically detect, diagno
 ### Plugins
 
 #### Core
- 
+- [Agent](./wiki/plugins/agent.md)
 - [Condition](./wiki/plugins/condition.md)
 - [Delay](./wiki/plugins/delay.md)
 - [Transform](./wiki/plugins/transform.md)

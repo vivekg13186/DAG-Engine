@@ -4,6 +4,14 @@
 // This plugin sends that prompt + the workflow's `input` text to the
 // configured provider and parses the response as JSON.
 //
+// Memory:
+//   • When `conversationId` is set, the plugin loads the last
+//     `historyLimit` turns from memories (namespace='history') and
+//     replays them as `messages`. After the call, if
+//     `storeConversation` is true (the default), the new user input
+//     and the model's reply are appended to history.
+//   • When `conversationId` is empty, the plugin runs stateless.
+//
 // Output shape (fixed wrapper):
 //   {
 //     result:     <parsed JSON object | array | null>,
@@ -11,19 +19,18 @@
 //     raw:        <full text response>,
 //     usage:      { inputTokens, outputTokens }
 //   }
-//
-// `result` is null when the model didn't emit JSON (or emitted invalid
-// JSON). Downstream nodes can branch on that via executeIf.
 
 import { loadAgent, callProvider, tryParseJson, extractConfidence } from "../agent/util.js";
+import { loadHistory, appendHistory } from "../../engine/memoryStore.js";
 
 export default {
   name: "agent",
   description:
     "Invoke a stored LLM agent. The `agent` input names a configured agent " +
-    "(Home page → Agents). The `input` is the user-facing text passed to " +
-    "the agent's prompt; the response is JSON-parsed and returned as " +
-    "`result` along with a confidence score, the raw text, and token usage.",
+    "(Home page → Agents). Set `conversationId` to enable per-conversation " +
+    "memory; the plugin auto-loads prior turns and (when storeConversation " +
+    "is true) auto-appends the new exchange. The response is JSON-parsed " +
+    "into `result` along with confidence, raw text, and token usage.",
 
   inputSchema: {
     type: "object",
@@ -42,6 +49,31 @@ export default {
         description:
           "Text passed to the agent. Usually a `${var}` reference to an " +
           "upstream node's output.",
+      },
+      conversationId: {
+        type: "string",
+        title: "Conversation ID",
+        description:
+          "Optional. When set, this node's memory is grouped under this " +
+          "key. Use ${userId} or any expression that's stable per " +
+          "conversation. Leave empty for a stateless call.",
+      },
+      storeConversation: {
+        type: "boolean",
+        title: "Store this exchange in memory",
+        default: true,
+        description:
+          "Only used when conversationId is set. Off = read-only " +
+          "(prior turns are loaded into the prompt but the new exchange " +
+          "is NOT appended to history).",
+      },
+      historyLimit: {
+        type: "integer",
+        title: "History turn limit",
+        minimum: 0, maximum: 200, default: 20,
+        description:
+          "Number of past turns to load (0 = no history). Each turn is " +
+          "one message. Older turns are discarded.",
       },
       maxTokens: {
         type: "integer",
@@ -72,14 +104,69 @@ export default {
     },
   },
 
-  async execute(input, ctx) {
+  async execute(input, ctx, hooks) {
     const { agent, cfg } = await loadAgent(ctx, input.agent);
+
+    const userText      = String(input.input ?? "");
+    const convId        = input.conversationId ? String(input.conversationId) : null;
+    const storeNew      = input.storeConversation !== false;
+    const historyLimit  = input.historyLimit ?? 20;
+    const scopeId       = ctx?.execution?.graphId || null;
+
+    // Memory load: pull prior turns into a `messages` array. Empty when
+    // conversationId is unset or historyLimit is 0.
+    const history = (convId && historyLimit > 0)
+      ? await loadHistory({
+          scope:          "workflow",
+          scopeId,
+          conversationId: convId,
+          limit:          historyLimit,
+        })
+      : [];
+    const messages = [...history, { role: "user", content: userText }];
+
+    const onText = hooks?.stream?.text ? (chunk) => hooks.stream.text(chunk) : null;
+    if (hooks?.stream?.log) {
+      hooks.stream.log(
+        "info",
+        `agent "${agent.title}" → ${cfg.provider}/${cfg.model}` +
+        (convId ? ` (conversation=${convId}, history=${history.length} turn${history.length === 1 ? "" : "s"})` : "")
+      );
+    }
+
     const { text, usage } = await callProvider({
       cfg,
       system:    agent.prompt,
-      userText:  String(input.input ?? ""),
+      messages,
       maxTokens: input.maxTokens || 2048,
+      onText,
     });
+
+    // Memory store: if conversationId is set AND storeConversation is true,
+    // append both turns. Two rows so a future load reconstructs the
+    // exchange in order.
+    if (convId && storeNew) {
+      try {
+        await appendHistory({
+          scope: "workflow", scopeId,
+          conversationId: convId,
+          role: "user", content: userText,
+        });
+        await appendHistory({
+          scope: "workflow", scopeId,
+          conversationId: convId,
+          role: "assistant", content: text,
+        });
+      } catch (e) {
+        // Memory write failures shouldn't lose a successful agent call.
+        // Log it through the streaming hook so the user sees the issue
+        // in the Live output panel; the plugin still returns success.
+        if (hooks?.stream?.log) {
+          hooks.stream.log("warn", `memory append failed: ${e.message}`);
+        }
+      }
+    }
+
     const parsed     = tryParseJson(text);
     const confidence = extractConfidence(parsed);
     return {

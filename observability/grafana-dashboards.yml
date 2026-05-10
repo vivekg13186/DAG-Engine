@@ -1,0 +1,12 @@
+# Grafana dashboard provisioning. Loads any *.json under /var/lib/grafana/dashboards
+# (mapped to ./dashboards in compose) on startup.
+
+apiVersion: 1
+providers:
+  - name: daisy-provisioned
+    folder: "Daisy-DAG"
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards

@@ -39,22 +39,34 @@ export async function loadAgent(ctx, title) {
 }
 
 /**
- * Drive a single LLM turn against the configured provider. Returns
+ * Drive a single LLM turn against the configured provider.
  *
+ * Either pass `userText` (single user message — the legacy shape) OR
+ * `messages` (full multi-turn array — used when conversation history
+ * is being replayed). When both are present, `messages` wins.
+ *
+ * Returns
  *   { text:   <full response text>,
  *     usage:  { inputTokens, outputTokens } }
  *
- * The agent's `prompt` is wired in as the system prompt; the workflow's
- * `input` text is the single user message.
+ * If `onText` is supplied, text deltas are streamed via SSE.
  */
-export async function callProvider({ cfg, system, userText, maxTokens = 2048 }) {
+export async function callProvider({ cfg, system, userText, messages, maxTokens = 2048, onText }) {
+  const finalMessages = Array.isArray(messages) && messages.length
+    ? messages
+    : [{ role: "user", content: String(userText ?? "") }];
+
   if (cfg.provider === "anthropic") {
-    return callAnthropic(cfg, system, userText, maxTokens);
+    return onText
+      ? callAnthropicStreaming(cfg, system, finalMessages, maxTokens, onText)
+      : callAnthropic(cfg, system, finalMessages, maxTokens);
   }
-  return callOpenAI(cfg, system, userText, maxTokens);
+  return onText
+    ? callOpenAIStreaming(cfg, system, finalMessages, maxTokens, onText)
+    : callOpenAI(cfg, system, finalMessages, maxTokens);
 }
 
-async function callAnthropic(cfg, system, userText, maxTokens) {
+async function callAnthropic(cfg, system, messages, maxTokens) {
   const baseUrl = (cfg.baseUrl || "https://api.anthropic.com/v1").replace(/\/$/, "");
   const res = await fetch(`${baseUrl}/messages`, {
     method: "POST",
@@ -67,7 +79,7 @@ async function callAnthropic(cfg, system, userText, maxTokens) {
       model:      cfg.model,
       max_tokens: maxTokens,
       system,
-      messages:   [{ role: "user", content: userText }],
+      messages,
     }),
   });
   if (!res.ok) {
@@ -86,7 +98,7 @@ async function callAnthropic(cfg, system, userText, maxTokens) {
   };
 }
 
-async function callOpenAI(cfg, system, userText, maxTokens) {
+async function callOpenAI(cfg, system, messages, maxTokens) {
   const baseUrl = (cfg.baseUrl || "https://api.openai.com/v1").replace(/\/$/, "");
   const res = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
@@ -99,7 +111,7 @@ async function callOpenAI(cfg, system, userText, maxTokens) {
       max_tokens: maxTokens,
       messages: [
         { role: "system", content: system },
-        { role: "user",   content: userText },
+        ...messages,
       ],
       temperature: 0.3,
     }),
@@ -117,6 +129,153 @@ async function callOpenAI(cfg, system, userText, maxTokens) {
       outputTokens: data?.usage?.completion_tokens ?? 0,
     },
   };
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Streaming variants — same providers, opened with `stream: true`,
+// reading the SSE response and forwarding text deltas via `onText`.
+// Final shape matches the blob variants exactly.
+// ──────────────────────────────────────────────────────────────────────
+
+async function callAnthropicStreaming(cfg, system, messages, maxTokens, onText) {
+  const baseUrl = (cfg.baseUrl || "https://api.anthropic.com/v1").replace(/\/$/, "");
+  const res = await fetch(`${baseUrl}/messages`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": cfg.apiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model:      cfg.model,
+      max_tokens: maxTokens,
+      stream:     true,
+      system,
+      messages,
+    }),
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`agent (anthropic): ${res.status} ${String(txt).slice(0, 500)}`);
+  }
+
+  let acc = "";
+  const usage = { inputTokens: 0, outputTokens: 0 };
+
+  for await (const evt of parseSse(res.body)) {
+    let parsed;
+    try { parsed = JSON.parse(evt.data); } catch { continue; }
+
+    // Anthropic streaming event shapes:
+    //   message_start         → carries initial usage.input_tokens
+    //   content_block_delta   → { delta: { type: "text_delta", text: "…" } }
+    //   message_delta         → { usage: { output_tokens: N } } (cumulative)
+    //   message_stop          → end of stream
+    if (parsed.type === "message_start" && parsed.message?.usage) {
+      usage.inputTokens  = parsed.message.usage.input_tokens  ?? usage.inputTokens;
+      usage.outputTokens = parsed.message.usage.output_tokens ?? usage.outputTokens;
+    } else if (parsed.type === "content_block_delta" && parsed.delta?.type === "text_delta") {
+      const delta = parsed.delta.text || "";
+      if (delta) {
+        acc += delta;
+        try { onText(delta); } catch { /* never let a bad listener crash the stream */ }
+      }
+    } else if (parsed.type === "message_delta" && parsed.usage) {
+      usage.outputTokens = parsed.usage.output_tokens ?? usage.outputTokens;
+    }
+  }
+
+  return { text: acc, usage };
+}
+
+async function callOpenAIStreaming(cfg, system, messages, maxTokens, onText) {
+  const baseUrl = (cfg.baseUrl || "https://api.openai.com/v1").replace(/\/$/, "");
+  const res = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "content-type":  "application/json",
+      "authorization": `Bearer ${cfg.apiKey}`,
+    },
+    body: JSON.stringify({
+      model:      cfg.model,
+      max_tokens: maxTokens,
+      stream:     true,
+      stream_options: { include_usage: true },     // makes the final chunk carry usage
+      messages: [
+        { role: "system", content: system },
+        ...messages,
+      ],
+      temperature: 0.3,
+    }),
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`agent (openai): ${res.status} ${String(txt).slice(0, 500)}`);
+  }
+
+  let acc = "";
+  const usage = { inputTokens: 0, outputTokens: 0 };
+
+  for await (const evt of parseSse(res.body)) {
+    if (evt.data === "[DONE]") break;
+    let parsed;
+    try { parsed = JSON.parse(evt.data); } catch { continue; }
+
+    const delta = parsed.choices?.[0]?.delta?.content || "";
+    if (delta) {
+      acc += delta;
+      try { onText(delta); } catch { /* see anthropic comment */ }
+    }
+    if (parsed.usage) {
+      usage.inputTokens  = parsed.usage.prompt_tokens     ?? usage.inputTokens;
+      usage.outputTokens = parsed.usage.completion_tokens ?? usage.outputTokens;
+    }
+  }
+
+  return { text: acc, usage };
+}
+
+/**
+ * Async-iterator over an SSE response body. Yields `{ event, data }`
+ * objects, one per `\n\n`-delimited frame. `data` is the raw string
+ * (we leave JSON parsing to the caller because Anthropic and OpenAI
+ * use different envelope shapes).
+ *
+ * Tolerates partial frames split across network reads — we accumulate
+ * a buffer until we see a `\n\n` terminator, then emit and trim.
+ */
+async function* parseSse(stream) {
+  const decoder = new TextDecoder();
+  let buffer = "";
+  // Node's fetch returns a web ReadableStream; for-await iterates Uint8Array chunks.
+  for await (const chunk of stream) {
+    buffer += decoder.decode(chunk, { stream: true });
+    let idx;
+    while ((idx = buffer.indexOf("\n\n")) !== -1) {
+      const frame = buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 2);
+      const ev = parseFrame(frame);
+      if (ev) yield ev;
+    }
+  }
+  // Flush any trailing frame (no terminator received).
+  buffer += decoder.decode();
+  if (buffer.trim()) {
+    const ev = parseFrame(buffer);
+    if (ev) yield ev;
+  }
+}
+
+function parseFrame(text) {
+  let event = "message";
+  let data  = "";
+  for (const line of text.split("\n")) {
+    if (line.startsWith(":"))            continue;          // SSE comment
+    if (line.startsWith("event:"))       event = line.slice(6).trim();
+    else if (line.startsWith("data:"))   data += line.slice(5).trim() + "\n";
+  }
+  data = data.replace(/\n$/, "");
+  return data ? { event, data } : null;
 }
 
 /**

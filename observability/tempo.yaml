@@ -1,0 +1,30 @@
+# Minimal Tempo config — only the fields that are stable across recent
+# Tempo releases. ingester / compactor blocks were removed because the
+# YAML schema for them shifts between versions; defaults work fine for
+# local dev. If you bump the Tempo image and want retention or block
+# tuning, paste the relevant blocks back in from the Tempo docs for
+# YOUR version (https://grafana.com/docs/tempo/latest/configuration/).
+#
+# Storage is local-disk in /var/tempo (mapped to a docker volume).
+# Traces accumulate until you wipe the volume:
+#     docker compose -f observability/docker-compose.yml down -v
+
+server:
+  http_listen_port: 3200
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        http:
+          endpoint: 0.0.0.0:4318
+        grpc:
+          endpoint: 0.0.0.0:4317
+
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /var/tempo/wal
+    local:
+      path: /var/tempo/blocks
