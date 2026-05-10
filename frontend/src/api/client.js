@@ -1,6 +1,54 @@
 import axios from "axios";
+import { auth } from "../stores/auth.js";
+import { router } from "../routes.js";
 
-const api = axios.create({ baseURL: "/api" });
+const api = axios.create({
+  baseURL: "/api",
+  withCredentials: true,    // sends the daisy_rt cookie on /auth/refresh
+});
+
+// Request interceptor — attach the in-memory access token to every
+// outbound call. We don't read from localStorage on purpose; refresh
+// tokens (httpOnly cookie) handle persistence across reloads.
+api.interceptors.request.use((cfg) => {
+  if (auth.token) {
+    cfg.headers = cfg.headers || {};
+    cfg.headers.Authorization = `Bearer ${auth.token}`;
+  }
+  return cfg;
+});
+
+// Response interceptor — when the API answers 401, try one silent
+// /auth/refresh round-trip and re-issue the original request. If the
+// refresh itself fails, redirect the user to /login.
+//
+// The `_retried` flag prevents an infinite loop if the retried
+// request also 401s (e.g. clock skew, manual revoke).
+api.interceptors.response.use(
+  (resp) => resp,
+  async (err) => {
+    const original = err.config || {};
+    const status   = err.response?.status;
+    if (status !== 401 || original._retried) {
+      throw err;
+    }
+    original._retried = true;
+    const user = await auth.tryRefresh();
+    if (!user) {
+      // Refresh path failed — bounce to login, preserving the page
+      // we were on so the post-login redirect lands the user back
+      // where they were.
+      const target = router.currentRoute.value.fullPath;
+      if (router.currentRoute.value.name !== "login") {
+        router.replace({ name: "login", query: { next: target } });
+      }
+      throw err;
+    }
+    // Re-fire the original request with the new token attached by
+    // the request interceptor.
+    return api(original);
+  },
+);
 
 // `dsl` is the JSON-serialised DAG (formerly YAML). The backend keeps a
 // `yaml` alias on its request handlers for back-compat, but new clients
@@ -131,9 +179,20 @@ export const Triggers = {
   remove: (id) => api.delete(`/triggers/${id}`).then(r => r.data),
 };
 
+/** Open the live-execution WebSocket. Includes the auth token as a
+ *  query-string parameter — browsers can't set Authorization headers
+ *  on the WS upgrade, so this is the standard workaround. The backend
+ *  validates the token on connect and refuses cross-workspace
+ *  subscribers. If the access token is expired by the time the WS
+ *  upgrades, the server closes with code 4001 — the caller can
+ *  optionally re-call openLiveExecution() after the next API request
+ *  has refreshed the token. */
 export function openLiveExecution(executionId, onMessage) {
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  const ws = new WebSocket(`${proto}://${location.host}/ws?executionId=${executionId}`);
+  const t = auth.token ? `&access_token=${encodeURIComponent(auth.token)}` : "";
+  const ws = new WebSocket(
+    `${proto}://${location.host}/ws?executionId=${executionId}${t}`
+  );
   ws.onmessage = (e) => { try { onMessage(JSON.parse(e.data)); } catch {} };
   return ws;
 }
