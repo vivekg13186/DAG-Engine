@@ -1,4 +1,4 @@
-# DAG Engine — Wiki
+# DAISY Engine — Wiki
 
 A JSON-defined DAG workflow engine with a drag-and-drop visual editor, pluggable actions, parallel execution, retries, batch fan-out, FEEL expressions, and an AI assistant.
 

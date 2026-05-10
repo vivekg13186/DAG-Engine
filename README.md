@@ -102,6 +102,8 @@ Use AI-driven monitoring and recovery mechanisms to automatically detect, diagno
 ![Home Page](./images/home_page.png)
 ![Flow Inspector](./images/flow_inspector.png)
 ![Instance View](./images/instance_view.png)
+![Prompt View](./images/ai_prompt.png)
+![Flow Editor](./images/flow_editor.png)
 
 
 ---
