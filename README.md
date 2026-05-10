@@ -109,14 +109,6 @@ Use AI-driven monitoring and recovery mechanisms to automatically detect, diagno
 ---
 
 
-
-
-## License
-
-Personal project — can be adapted or reused with attribution.
-
----
-
 Built as a personal exploration of workflow engines, automation systems, and DAG-based execution models.
 
 
