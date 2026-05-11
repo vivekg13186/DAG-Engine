@@ -234,6 +234,114 @@
                     >
                         <pre class="cell-pre q-pa-md">{{ execution.error }}</pre>
                     </q-expansion-item>
+
+                    <!-- Self-heal diagnosis panel.
+                         Only shown when the execution failed. The "Diagnose
+                         this failure" button kicks off an LLM analysis; the
+                         cached result lives in execution_diagnoses and is
+                         folded into the GET response so revisits don't
+                         re-fire the LLM. -->
+                    <q-expansion-item
+                        v-if="execution?.status === 'failed'"
+                        dense dense-toggle default-opened
+                        label="Self-heal diagnosis" header-class="app-section-header"
+                    >
+                        <div class="q-pa-md">
+                            <div v-if="!diagnosis && !diagnosing" class="row items-center q-gutter-md">
+                                <span class="text-caption" style="color: var(--text-muted);">
+                                    Ask the AI to classify the failure and recommend a fix.
+                                    Diagnoses are cached; no automatic action is taken.
+                                </span>
+                                <q-space />
+                                <q-btn
+                                    unelevated no-caps
+                                    color="primary"
+                                    icon="auto_awesome"
+                                    label="Diagnose this failure"
+                                    @click="onDiagnose(false)"
+                                />
+                            </div>
+
+                            <div v-if="diagnosing" class="row items-center q-gutter-sm">
+                                <q-spinner-dots color="primary" />
+                                <span class="text-caption">Analysing failure…</span>
+                            </div>
+
+                            <div v-if="diagnosisError" class="text-negative q-mb-sm">
+                                {{ diagnosisError }}
+                            </div>
+
+                            <template v-if="diagnosis && diagnosis.status === 'completed'">
+                                <div class="row items-center q-mb-sm q-gutter-sm">
+                                    <q-chip
+                                        :color="categoryColor(diagnosis.category)"
+                                        text-color="white"
+                                        :label="diagnosis.category"
+                                        dense
+                                    />
+                                    <q-chip
+                                        outline color="primary" dense
+                                        :label="`confidence ${Math.round((diagnosis.confidence || 0) * 100)}%`"
+                                    />
+                                    <q-space />
+                                    <span class="text-caption" style="color: var(--text-muted);">
+                                        {{ diagnosis.model }} · {{ (diagnosis.input_tokens || 0) + (diagnosis.output_tokens || 0) }} tokens
+                                    </span>
+                                    <q-btn
+                                        flat dense no-caps
+                                        icon="refresh"
+                                        label="Re-diagnose"
+                                        @click="onDiagnose(true)"
+                                    />
+                                </div>
+
+                                <div class="diagnosis-rootcause q-mb-md">
+                                    {{ diagnosis.root_cause }}
+                                </div>
+
+                                <div
+                                    v-if="diagnosis.recommended_actions?.length"
+                                    class="text-caption q-mb-sm"
+                                    style="color: var(--text-muted);"
+                                >
+                                    Recommended actions (manual — nothing is auto-applied):
+                                </div>
+                                <q-list dense bordered separator>
+                                    <q-item
+                                        v-for="(a, i) in diagnosis.recommended_actions"
+                                        :key="i"
+                                    >
+                                        <q-item-section avatar>
+                                            <q-icon :name="actionIcon(a.action)" />
+                                        </q-item-section>
+                                        <q-item-section>
+                                            <q-item-label class="row items-center">
+                                                <code class="recovery-name">{{ a.action }}</code>
+                                                <span class="text-caption q-ml-sm" style="color: var(--text-muted);">
+                                                    {{ Math.round((a.confidence || 0) * 100) }}% confident
+                                                </span>
+                                            </q-item-label>
+                                            <q-item-label caption>{{ a.rationale }}</q-item-label>
+                                            <q-item-label
+                                                v-if="a.params && Object.keys(a.params).length"
+                                                caption
+                                            >
+                                                <pre class="diagnosis-params">{{ JSON.stringify(a.params, null, 2) }}</pre>
+                                            </q-item-label>
+                                        </q-item-section>
+                                    </q-item>
+                                </q-list>
+                            </template>
+
+                            <div v-if="diagnosis?.status === 'failed'" class="text-negative">
+                                Diagnosis failed: {{ diagnosis.error }}
+                                <q-btn
+                                    flat dense no-caps icon="refresh" label="Retry"
+                                    @click="onDiagnose(true)" class="q-ml-sm"
+                                />
+                            </div>
+                        </div>
+                    </q-expansion-item>
                 </template>
             </q-page>
         </q-page-container>
@@ -311,6 +419,14 @@ const editOpen   = ref(false);
 const editing    = ref(null);                // the failed node currently being edited
 const editJson   = ref("");
 const editJsonErr = ref("");
+
+// Self-heal diagnosis (PR A). The /executions/:id GET response
+// already folds in `diagnosis` when one exists; on first refresh we
+// copy it into this ref so the panel renders without a separate
+// fetch. `onDiagnose(force)` POSTs to /diagnose and refreshes.
+const diagnosis      = ref(null);
+const diagnosing     = ref(false);
+const diagnosisError = ref("");
 
 // One per waiting `user` node — keys are node names, values are the
 // in-progress JSON text the operator is typing in the textarea.
@@ -421,6 +537,11 @@ async function loadExecution() {
     try {
         const exec = await Executions.get(id);
         execution.value = exec;
+        // The GET response folds in a cached self-heal diagnosis if
+        // one exists. Hydrate the panel's state so the section
+        // renders the prior analysis on revisit.
+        diagnosis.value = exec.diagnosis || null;
+        diagnosisError.value = "";
         // Load the parent graph once; rely on its YAML for the DAG layout so
         // we get the same wires the author drew, even for nodes that never
         // actually ran.
@@ -665,9 +786,72 @@ async function onApplyEdit() {
 }
 
 function errMsg(e) { return e?.response?.data?.message || e?.message || "unknown error"; }
+
+// ──────────────────────────────────────────────────────────────────
+// Self-heal — diagnose-on-demand (PR A)
+// ──────────────────────────────────────────────────────────────────
+
+async function onDiagnose(force = false) {
+    if (!execution.value?.id) return;
+    diagnosing.value     = true;
+    diagnosisError.value = "";
+    try {
+        const { diagnosis: d } = await Executions.diagnose(execution.value.id, { force });
+        diagnosis.value = d;
+    } catch (e) {
+        diagnosisError.value = errMsg(e);
+    } finally {
+        diagnosing.value = false;
+    }
+}
+
+// Category → chip colour. Same palette the dashboard uses for
+// failure types so the visual language is consistent.
+function categoryColor(cat) {
+    switch (cat) {
+        case "transient": return "warning";
+        case "config":    return "info";
+        case "code":      return "negative";
+        case "external":  return "purple";
+        default:          return "grey-7";
+    }
+}
+
+// Action → Material icon. Mirrors the manual Recovery panel icons
+// so the same operator gesture maps to the same visual.
+function actionIcon(action) {
+    switch (action) {
+        case "retry":              return "play_arrow";
+        case "retry-with-timeout": return "schedule";
+        case "retry-with-inputs":  return "edit";
+        case "skip":               return "redo";
+        case "escalate":           return "report";
+        default:                   return "auto_awesome";
+    }
+}
 </script>
 
 <style scoped>
+/* Self-heal diagnosis panel */
+.diagnosis-rootcause {
+    background: rgba(47, 109, 243, 0.06);
+    border-left: 3px solid var(--q-primary, #2f6df3);
+    padding: 10px 12px;
+    border-radius: 4px;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--text);
+}
+.diagnosis-params {
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 11px;
+    margin: 4px 0 0;
+    white-space: pre-wrap;
+    background: rgba(0, 0, 0, 0.04);
+    padding: 4px 6px;
+    border-radius: 4px;
+}
+
 .exec-graph {
     height: 360px;
     background: var(--surface);

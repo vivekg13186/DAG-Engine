@@ -101,6 +101,11 @@ export const Executions = {
   // can read it as ${<var>}.
   respond: (id, node, data) =>
     api.post(`/executions/${id}/nodes/${encodeURIComponent(node)}/respond`, { data }).then(r => r.data),
+
+  // Self-heal diagnosis (PR A). Returns { cached, diagnosis }.
+  // Pass `force` to regenerate even when a cached diagnosis exists.
+  diagnose: (id, { force = false } = {}) =>
+    api.post(`/executions/${id}/diagnose${force ? "?force=1" : ""}`).then(r => r.data),
 };
 
 export const Plugins = {

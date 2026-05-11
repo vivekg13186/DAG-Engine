@@ -4,6 +4,8 @@ import { NotFoundError, ValidationError } from "../utils/errors.js";
 import { enqueueExecution } from "../queue/queue.js";
 import { resetNodeForReplay, upsertNodeState } from "../engine/nodeStateStore.js";
 import { requireUser, requireRole } from "../middleware/auth.js";
+import { diagnoseExecution } from "../selfheal/diagnose.js";
+import { auditLog } from "../audit/log.js";
 
 const router = Router();
 
@@ -90,7 +92,25 @@ router.get("/:id", requireRole("admin", "editor", "viewer"), async (req, res, ne
       // Table missing — soft-fail, see comment above.
     }
 
-    res.json({ ...execs[0], node_states: nodeStates });
+    // Fold in a cached self-heal diagnosis if one exists, so the
+    // InstanceViewer can render it without a second round-trip.
+    // Migration 017 created this table; tolerate its absence so
+    // pre-017 deployments still serve executions.
+    let diagnosis = null;
+    try {
+      const r = await pool.query(
+        `SELECT execution_id, confidence, category, root_cause,
+                recommended_actions, evidence, model, input_tokens,
+                output_tokens, status, error, created_at
+           FROM execution_diagnoses WHERE execution_id = $1`,
+        [req.params.id],
+      );
+      diagnosis = r.rows[0] || null;
+    } catch (e) {
+      if (e.code !== "42P01") throw e;
+    }
+
+    res.json({ ...execs[0], node_states: nodeStates, diagnosis });
   } catch (e) { next(e); }
 });
 
@@ -277,6 +297,50 @@ router.post("/:id/nodes/:nodeName/respond", requireRole("admin", "editor"), asyn
     await enqueueExecution({ executionId: id, graphId: exec.graph_id });
 
     res.status(202).json({ id, node: nodeName, status: "queued" });
+  } catch (e) { next(e); }
+});
+
+/**
+ * POST /executions/:id/diagnose
+ *
+ * Self-heal Tier 2 — produce (or fetch cached) LLM analysis of a
+ * failed execution. Admin + editor only; workspace-scoped.
+ *
+ * Query:
+ *   ?force=1   re-run the LLM even when a diagnosis is already cached
+ *
+ * Response shape:
+ *   { cached: bool, diagnosis: {
+ *       execution_id, workspace_id, confidence, category,
+ *       root_cause, recommended_actions, evidence,
+ *       model, input_tokens, output_tokens,
+ *       status, error, created_at
+ *   } }
+ */
+router.post("/:id/diagnose", requireRole("admin", "editor"), async (req, res, next) => {
+  try {
+    // Cheap workspace check up-front — bail before calling out to the
+    // LLM if the execution isn't ours.
+    const { rows } = await pool.query(
+      "SELECT id, status FROM executions WHERE id=$1 AND workspace_id=$2",
+      [req.params.id, req.user.workspaceId],
+    );
+    if (rows.length === 0) throw new NotFoundError("execution");
+
+    const force = req.query.force === "1" || req.query.force === "true";
+    const { cached, diagnosis } = await diagnoseExecution(req.params.id, {
+      actor: req.user,
+      force,
+    });
+    // Audit the action so the trail shows who asked the LLM about
+    // which failure. Useful when investigating "who triggered the
+    // bot-driven explanation that led to that action."
+    await auditLog({
+      req, action: "selfheal.diagnose",
+      resource: { type: "execution", id: req.params.id },
+      metadata: { cached, regenerated: force, category: diagnosis?.category },
+    });
+    res.json({ cached, diagnosis });
   } catch (e) { next(e); }
 });
 

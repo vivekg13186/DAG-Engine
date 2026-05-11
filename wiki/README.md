@@ -18,6 +18,7 @@ A JSON-defined DAG workflow engine with a drag-and-drop visual editor, pluggable
 12. [Alerting](./12-alerting.md) — 5 default Grafana rules + Slack/PagerDuty/email routing.
 13. [Audit logging](./13-audit-logging.md) — who/what/when on security-relevant actions.
 14. [TLS edge](./14-tls-edge.md) — nginx / Caddy / k8s ingress configs for production-grade HTTPS.
+15. [Self-healing](./15-self-healing.md) — diagnose-on-demand (PR A) + roadmap.
 
 ## Quick links
 
