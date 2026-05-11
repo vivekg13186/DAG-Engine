@@ -31,6 +31,7 @@ import {
   WorkflowTimeoutError,
 } from "./engine/limits.js";
 import { start as startRetention, stop as stopRetention } from "./retention/runner.js";
+import { startWorkerProbe, stopWorkerProbe } from "./health/workerProbe.js";
 
 await loadBuiltins();
 await loadTriggerBuiltins();
@@ -331,7 +332,18 @@ worker.on("failed", (job, err) => {
 
 worker.on("ready", () => log.info("worker ready", { concurrency: config.workerConcurrency }));
 
+// Optional probe server — opt-in via WORKER_HEALTH_PORT so dev
+// (where the worker runs in-process under server.js) doesn't try
+// to bind a second port. In a real worker deployment set the env
+// to whatever your platform's healthcheck expects (k8s default
+// pattern is 3100 or 8081).
+const probePort = parseInt(process.env.WORKER_HEALTH_PORT || "0", 10);
+if (probePort > 0) {
+  startWorkerProbe({ port: probePort, worker });
+}
+
 process.on("SIGTERM", async () => {
+  stopWorkerProbe();
   stopRetention();
   await stopTriggerManager();
   await worker.close();

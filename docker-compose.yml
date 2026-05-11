@@ -48,6 +48,16 @@ services:
       REDIS_URL: redis://redis:6379
     ports:
       - "3000:3000"
+    # /readyz returns 200 only when pg + redis are reachable.
+    # Docker's HEALTHCHECK marks the container `unhealthy` after
+    # three consecutive failures so the load balancer / orchestrator
+    # can route around it.
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
 
   frontend:
     profiles: ["full"]

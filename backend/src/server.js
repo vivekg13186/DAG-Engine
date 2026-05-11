@@ -12,6 +12,7 @@ import { config } from "./config.js";
 import { log } from "./utils/logger.js";
 import { HttpError } from "./utils/errors.js";
 import { loadBuiltins } from "./plugins/registry.js";
+import { readiness } from "./health/checks.js";
 import authRouter from "./api/auth.js";
 import usersRouter from "./api/users.js";
 import workspacesRouter from "./api/workspaces.js";
@@ -41,7 +42,29 @@ app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
 app.use(morgan("tiny"));
 
-app.get("/health", (_req, res) => res.json({ ok: true, env: config.env }));
+// ──────────────────────────────────────────────────────────────────────
+// Health probes — public (no auth) by design. K8s, load balancers,
+// and uptime monitors hit these on a tight cadence and don't carry
+// auth headers.
+//
+//   GET /health     legacy summary; kept for back-compat with anything
+//                   that already polls it.
+//   GET /healthz    liveness — returns 200 as long as the process is
+//                   responding. Used by k8s to decide "should I
+//                   restart the container?". Must be cheap and never
+//                   fail because of a transient downstream blip; a
+//                   liveness flap = a restart loop.
+//   GET /readyz     readiness — returns 200 only when the process can
+//                   actually serve traffic (DB + Redis reachable in
+//                   bounded time). 503 with a JSON body otherwise so
+//                   the LB can take the instance out of rotation.
+// ──────────────────────────────────────────────────────────────────────
+app.get("/health",  (_req, res) => res.json({ ok: true, env: config.env }));
+app.get("/healthz", (_req, res) => res.json({ ok: true }));
+app.get("/readyz",  async (_req, res) => {
+  const { ok, checks } = await readiness();
+  res.status(ok ? 200 : 503).json({ ok, checks });
+});
 
 // Auth lives BEFORE the protected routes — and is itself unprotected
 // at the router level (login/refresh are public; /me uses requireUser
