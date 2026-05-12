@@ -6,7 +6,7 @@ This wiki documents the platform as it ships today. The sidebar organizes pages 
 
 | Page | Description |
 |------|-------------|
-| [Getting Started](Getting-Started) | Local development environment, prerequisites, first workflow run. |
+| [Getting Started](wiki/Getting-Started) | Local development environment, prerequisites, first workflow run. |
 | [Overview](Overview) | Architecture, execution model, data model, scaling characteristics. |
 
 ## Developer reference
