@@ -53,9 +53,9 @@ fences. The shape is:
 
 CRITICAL RULES:
 
-1. The plugin uses HTTP transport via daisy-plugin-sdk. index.js MUST be:
+1. The plugin uses HTTP transport via @daisy-workflow/plugin-sdk. index.js MUST be:
 
-   import { servePlugin } from "daisy-plugin-sdk";
+   import { servePlugin } from "@daisy-workflow/plugin-sdk";
    import fs from "node:fs";
 
    const manifest = JSON.parse(
@@ -77,14 +77,14 @@ CRITICAL RULES:
    The inputSchema MUST be a valid JSON Schema object with type=object and
    "required" listing every mandatory input.
 
-3. package.json MUST be type=module, depend on "daisy-plugin-sdk" (the
+3. package.json MUST be type=module, depend on "@daisy-workflow/plugin-sdk" (the
    published npm package — pin to a caret range like "^0.1.0"), and
    declare a "start" script of "node index.js". Include any third-party
    deps the plugin actually uses.
 
 4. Dockerfile MUST use node:22-alpine, COPY the plugin folder into
    /workspace, set WORKDIR to /workspace, run "npm install --omit=dev"
-   (which pulls daisy-plugin-sdk from npm), drop privileges with
+   (which pulls @daisy-workflow/plugin-sdk from npm), drop privileges with
    "USER node", and end with CMD ["node", "index.js"]. The image is
    self-contained — no repo-root context is needed because the SDK is
    on npm.

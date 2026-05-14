@@ -28,10 +28,13 @@ services:
   reddit-plugin:
     profiles: ["full"]
     build:
-      # Repo root so plugin-sdk/ is reachable during npm install
-      # (the package.json's "file:../../plugin-sdk" dependency
-      # would otherwise fail with "Cannot read path outside build
-      # context").
+      # The SDK now ships on npm as `@daisy-workflow/plugin-sdk`,
+      # so plugin containers don't need the repo-root build context
+      # anymore. A plugin's own folder is enough for `npm install`
+      # to pull the SDK from the registry. Keep this `context: .`
+      # only if your Dockerfile still references files outside the
+      # plugin folder (e.g. a shared local copy of the SDK during
+      # SDK development).
       context: .
       dockerfile: plugins-external/reddit/Dockerfile
     container_name: daisy-plugin-reddit
