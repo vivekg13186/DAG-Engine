@@ -1,0 +1,31 @@
+# Dev image for the Daisy-DAG frontend.
+#
+# Differences from frontend.Dockerfile:
+#   • No build step — Vite runs in dev mode with HMR.
+#   • Source is bind-mounted from the host, so edits are picked up live.
+#   • Exposes 5173 (Vite's default dev port).
+#   • --host 0.0.0.0 makes the dev server reachable from outside the
+#     container; without it Vite binds to localhost only and the port
+#     mapping appears dead.
+#
+# Run with:
+#   docker run --rm -it \
+#     -p 5173:5173 \
+#     -v $(pwd)/frontend/src:/app/src \
+#     -v $(pwd)/frontend/public:/app/public \
+#     vivek13186/daisy-dag-frontend:dev
+
+FROM node:22-alpine
+
+WORKDIR /app
+
+COPY package.json package-lock.json* ./
+RUN npm install
+
+ENV NODE_ENV=development
+
+EXPOSE 5173
+
+# --host 0.0.0.0 so the dev server isn't bound to the loopback inside
+# the container. -- separates the npm-script args from npm's own.
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]

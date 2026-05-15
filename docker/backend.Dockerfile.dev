@@ -1,0 +1,38 @@
+# Dev image for the Daisy-DAG backend.
+#
+# Differences from backend.Dockerfile:
+#   • Installs ALL deps (incl. dev tooling — test runners, --experimental
+#     flags). Production trims via `--omit=dev`.
+#   • Doesn't COPY src/ — source is bind-mounted from the host so
+#     `node --watch` picks up edits live.
+#   • Exposes 9229 for the Node inspector (attach a debugger to
+#     localhost:9229 from VS Code / Chrome DevTools).
+#   • Default CMD is `npm run dev` which runs API + an in-process
+#     worker with file watching.
+#
+# Run with:
+#   docker run --rm -it \
+#     -p 3000:3000 -p 9229:9229 \
+#     -v $(pwd)/backend/src:/app/src \
+#     -v $(pwd)/backend/migrations:/app/migrations \
+#     vivek13186/daisy-dag-backend:dev
+
+FROM node:22-alpine
+
+RUN apk add --no-cache tini
+
+WORKDIR /app
+
+COPY package.json package-lock.json* ./
+RUN npm install
+
+# We don't COPY src/ here — bind-mount it from the host at runtime so
+# every edit is picked up by `node --watch` without a rebuild.
+
+ENV NODE_ENV=development \
+    PORT=3000
+
+EXPOSE 3000 9229
+
+ENTRYPOINT ["tini", "--"]
+CMD ["npm", "run", "dev"]

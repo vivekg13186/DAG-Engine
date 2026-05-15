@@ -1,0 +1,90 @@
+# Publish Daisy-DAG images to Docker Hub.
+#
+# Fires on:
+#   • push to main          → builds prod images, tags as `edge` + `sha-<short>`
+#   • push to dev           → builds dev  images, tags as `dev`  + `sha-<short>-dev`
+#   • tag v*.*.*            → builds prod images, tags as <semver> + `latest`
+#   • manual run            → same as a push to the branch you trigger from
+#
+# Repo secrets you need to set (Settings → Secrets and variables →
+# Actions → New repository secret):
+#   • DOCKERHUB_USER   = vivek13186
+#   • DOCKERHUB_TOKEN  = a Docker Hub PAT
+#       (Docker Hub → Account Settings → Security → New Access Token,
+#        scope = Read, Write, Delete)
+
+name: Publish Docker images
+
+on:
+  push:
+    branches: [main, dev]
+    tags: ['v*.*.*']
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU (for arm64 emulation)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Branch / tag → Dockerfile + tags
+      #
+      #   refs/heads/main    → prod image, tags: edge, sha-<7>
+      #   refs/heads/dev     → dev image,  tags: dev,  sha-<7>-dev
+      #   refs/tags/vX.Y.Z   → prod image, tags: X.Y.Z, latest
+      - name: Compute build metadata
+        id: meta
+        run: |
+          IMG="${{ secrets.DOCKERHUB_USER }}/daisy-dag-${{ matrix.service }}"
+          SHA="${GITHUB_SHA::7}"
+
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            # vX.Y.Z → X.Y.Z
+            VER="${GITHUB_REF_NAME#v}"
+            echo "dockerfile=docker/${{ matrix.service }}.Dockerfile" >> $GITHUB_OUTPUT
+            echo "tags=$IMG:$VER,$IMG:latest" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref_name }}" == "dev" ]]; then
+            echo "dockerfile=docker/${{ matrix.service }}.Dockerfile.dev" >> $GITHUB_OUTPUT
+            echo "tags=$IMG:dev,$IMG:sha-${SHA}-dev" >> $GITHUB_OUTPUT
+          else
+            # main and any other branch land here
+            echo "dockerfile=docker/${{ matrix.service }}.Dockerfile" >> $GITHUB_OUTPUT
+            echo "tags=$IMG:edge,$IMG:sha-${SHA}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.service }}
+          file: ${{ steps.meta.outputs.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          # GitHub Actions cache — speeds up repeated builds.
+          # First build is slow (warming the cache); follow-up builds
+          # finish in a couple of minutes even with multi-arch.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # Helpful build-time labels — surface up in Docker Hub UI.
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ github.event.head_commit.timestamp }}
