@@ -260,7 +260,12 @@ async function onSave() {
     saving.value = true;
     try {
         const dsl = serializeModelToDsl(model.value);
-        // Validate first — surfaces parser errors early.
+        // Validate first — surfaces parser errors early. The server runs
+        // the same parseDag that validates required inputs per plugin
+        // (PR #65), so we let it be the source of truth rather than
+        // duplicating schema checks on the client. A user typing invalid
+        // JSON in the inputs editor will simply have a stale-but-valid
+        // object persisted (the last successful parse).
         try { await Graphs.validate(dsl); }
         catch (e) { throw new Error(formatValidationErr(e)); }
 

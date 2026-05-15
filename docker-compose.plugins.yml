@@ -59,108 +59,25 @@ services:
       retries: 3
       start_period: 5s
 
-  # ── Jira family ────────────────────────────────────────────────────
-  # Six focused plugins. Each one container, all on port 8080 internally
-  # (resolved via their container names in install URLs). After `up -d`,
-  # install each:
+  # ── Jira plugin ────────────────────────────────────────────────────
+  # One container, one Daisy node. The action is selected per-node via the
+  # `operation` input (issue.get / issue.create / issue.update / issue.delete
+  # / issue.search / issue.comment.add / issue.transition / issue.transitions.list).
+  # Mirrors n8n's Jira node.
   #
-  #   npm run install-plugin -- --endpoint http://jira-issue-get:8080
-  #   npm run install-plugin -- --endpoint http://jira-issue-create:8080
-  #   npm run install-plugin -- --endpoint http://jira-issue-update:8080
-  #   npm run install-plugin -- --endpoint http://jira-issue-search:8080
-  #   npm run install-plugin -- --endpoint http://jira-issue-comment-add:8080
-  #   npm run install-plugin -- --endpoint http://jira-issue-transition:8080
+  # Auth: workspace `generic` config (default name "jira") holding
+  # host / email / apiToken. Create one on the Configurations page in the
+  # Daisy UI before running any flows.
   #
-  # Auth: each plugin reads a workspace `generic` config (default name
-  # "jira") with host / email / apiToken. Create one on the
-  # Configurations page in the Daisy UI before running any flows.
+  # After `up -d`:
+  #   npm run install-plugin -- --endpoint http://daisy-jira:8080
 
-  jira-issue-get:
+  daisy-jira:
     profiles: ["jira", "full"]
     build:
       context: .
-      dockerfile: plugins-external/jira-issue-get/Dockerfile
-    container_name: jira-issue-get
-    restart: unless-stopped
-    environment:
-      PORT: "8080"
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
-      interval: 30s
-      timeout: 3s
-      retries: 3
-      start_period: 5s
-
-  jira-issue-create:
-    profiles: ["jira", "full"]
-    build:
-      context: .
-      dockerfile: plugins-external/jira-issue-create/Dockerfile
-    container_name: jira-issue-create
-    restart: unless-stopped
-    environment:
-      PORT: "8080"
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
-      interval: 30s
-      timeout: 3s
-      retries: 3
-      start_period: 5s
-
-  jira-issue-update:
-    profiles: ["jira", "full"]
-    build:
-      context: .
-      dockerfile: plugins-external/jira-issue-update/Dockerfile
-    container_name: jira-issue-update
-    restart: unless-stopped
-    environment:
-      PORT: "8080"
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
-      interval: 30s
-      timeout: 3s
-      retries: 3
-      start_period: 5s
-
-  jira-issue-search:
-    profiles: ["jira", "full"]
-    build:
-      context: .
-      dockerfile: plugins-external/jira-issue-search/Dockerfile
-    container_name: jira-issue-search
-    restart: unless-stopped
-    environment:
-      PORT: "8080"
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
-      interval: 30s
-      timeout: 3s
-      retries: 3
-      start_period: 5s
-
-  jira-issue-comment-add:
-    profiles: ["jira", "full"]
-    build:
-      context: .
-      dockerfile: plugins-external/jira-issue-comment-add/Dockerfile
-    container_name: jira-issue-comment-add
-    restart: unless-stopped
-    environment:
-      PORT: "8080"
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
-      interval: 30s
-      timeout: 3s
-      retries: 3
-      start_period: 5s
-
-  jira-issue-transition:
-    profiles: ["jira", "full"]
-    build:
-      context: .
-      dockerfile: plugins-external/jira-issue-transition/Dockerfile
-    container_name: jira-issue-transition
+      dockerfile: plugins-external/jira/Dockerfile
+    container_name: daisy-jira
     restart: unless-stopped
     environment:
       PORT: "8080"
