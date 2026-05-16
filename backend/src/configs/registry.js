@@ -105,6 +105,60 @@ export const TYPES = Object.freeze({
         description: "Optional override for the API endpoint. Defaults to the provider's standard URL." },
     ],
   },
+  ssh: {
+    label: "SSH host",
+    description:
+      "Connection details for SSH / SFTP. Referenced by the `ssh` plugin " +
+      "(exec / upload / download). Provide EITHER a password OR a privateKey " +
+      "— the plugin tries password auth first when both are set.",
+    fields: [
+      { name: "host",       type: "string", required: true,
+        description: "Hostname or IP of the remote server." },
+      { name: "port",       type: "number", default: 22,
+        description: "TCP port. Default 22." },
+      { name: "username",   type: "string", required: true },
+      { name: "password",   type: "string", secret: true,
+        description: "Password auth. Leave blank if you're using a private key." },
+      { name: "privateKey", type: "string", secret: true,
+        description: "PEM-encoded private key. Multi-line — paste the whole -----BEGIN…END----- block." },
+      { name: "passphrase", type: "string", secret: true,
+        description: "Optional passphrase protecting the private key." },
+    ],
+  },
+  ftp: {
+    label: "FTP / FTPS server",
+    description:
+      "Connection details for FTP or FTPS. Referenced by the `ftp` plugin " +
+      "(list / upload / download / delete / rename / mkdir / rmdir). For " +
+      "SFTP, use the `ssh` config type and the SSH plugin instead.",
+    fields: [
+      { name: "host",     type: "string",  required: true,
+        description: "Hostname or IP of the FTP server." },
+      { name: "port",     type: "number",  default: 21,
+        description: "TCP port. Default 21 (or 990 for implicit FTPS)." },
+      { name: "username", type: "string",  required: true },
+      { name: "password", type: "string",  secret: true },
+      { name: "secure",   type: "boolean", default: false,
+        description: "Use FTPS (FTP over TLS). Required for most modern public FTP endpoints." },
+    ],
+  },
+  git: {
+    label: "Git remote",
+    description:
+      "Credentials for the `git` plugin's HTTPS operations (clone / pull / " +
+      "push / fetch on private repos). The token is injected into the URL " +
+      "via a one-shot http.extraheader so it never lands in .git/config. " +
+      "SSH-based git URLs don't need this — they auth via the worker's " +
+      "SSH agent / known_hosts.",
+    fields: [
+      { name: "token",       type: "string", secret: true,
+        description: "Personal-access token for the host (GitHub PAT, GitLab PAT, Bitbucket app password). Encrypted at rest." },
+      { name: "authorName",  type: "string",
+        description: "Default name to stamp on commits made by the git.commit operation." },
+      { name: "authorEmail", type: "string",
+        description: "Default email to stamp on commits made by the git.commit operation." },
+    ],
+  },
   generic: {
     label: "Generic (key/value)",
     description: "Freeform key/value bag — for things that don't fit a specific type. " +

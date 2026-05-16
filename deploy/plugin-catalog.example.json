@@ -51,6 +51,22 @@
       "manifestSha256":  null,
 
       "catalogEntryUrl": "https://daisy-workflow.example.com/catalog#microsoft-teams@0.1.0"
+    },
+    {
+      "name":            "npm",
+      "version":         "0.1.0",
+      "summary":         "npm registry connector — read package metadata, search the index, fetch download stats. Public registry by default, private registries via Bearer token.",
+      "category":        "developer-tools",
+      "tags":            ["npm", "registry", "javascript", "developer-tools"],
+      "homepage":        "https://github.com/daisy-workflow/plugin-npm",
+
+      "containerImage":  "vivek13186/daisy-plugin-npm:latest",
+      "containerPort":   8080,
+
+      "manifestUrl":     "https://raw.githubusercontent.com/daisy-workflow/plugin-npm/main/manifest.json",
+      "manifestSha256":  null,
+
+      "catalogEntryUrl": "https://daisy-workflow.example.com/catalog#npm@0.1.0"
     }
   ]
 }

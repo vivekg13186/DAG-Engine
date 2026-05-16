@@ -25,6 +25,7 @@
     "@opentelemetry/semantic-conventions": "^1.27.0",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
+    "basic-ftp": "^5.0.5",
     "bcryptjs": "^2.4.3",
     "bullmq": "^5.12.0",
     "cookie-parser": "^1.4.7",
@@ -50,6 +51,7 @@
     "nodemailer": "^6.9.15",
     "pg": "^8.12.0",
     "rate-limit-redis": "^4.2.0",
+    "ssh2": "^1.16.0",
     "uuid": "^10.0.0",
     "ws": "^8.18.0"
   }

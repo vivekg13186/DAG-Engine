@@ -148,3 +148,27 @@ services:
       timeout: 3s
       retries: 3
       start_period: 5s
+
+  # ── npm registry plugin ─────────────────────────────────────────────
+  # One container, one Daisy node. Read-only operations against the
+  # public npm registry (or a private mirror): package.info /
+  # package.search / package.downloads. No auth needed for the public
+  # registry; private registries take a Bearer token via the node's
+  # `token` input or a workspace `generic` config.
+  #
+  # After `up -d`:
+  #   npm run install-plugin -- --endpoint http://daisy-npm:8080
+
+  daisy-npm:
+    profiles: ["npm", "full"]
+    image: vivek13186/daisy-plugin-npm:latest
+    container_name: daisy-npm
+    restart: unless-stopped
+    environment:
+      PORT: "8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s

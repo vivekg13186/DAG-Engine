@@ -29,7 +29,12 @@ FROM node:22-alpine AS runtime
 
 # tini is the smallest init that handles SIGTERM + reaps zombies. The
 # worker forks the engine; without an init the container leaks.
-RUN apk add --no-cache tini
+#
+# git + openssh-client back the `git` builtin plugin (clone / pull /
+# push / etc.) which shells out to the binaries. ~30MB combined; if
+# you don't use the git plugin you can drop them and the image gets
+# back to ~180MB.
+RUN apk add --no-cache tini git openssh-client
 
 WORKDIR /app
 
